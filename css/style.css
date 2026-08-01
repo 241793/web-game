@@ -1,0 +1,3050 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+}
+
+:root {
+    --bf-accent: #ffb333;
+    --bf-accent2: #ff6a1e;
+    --bf-cyan: #7fd4ff;
+    --bf-bg-dark: #07090d;
+    --bf-panel: rgba(10, 14, 20, 0.82);
+    --bf-line: rgba(255, 255, 255, 0.14);
+}
+
+body {
+    overflow: hidden;
+    font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    background: #000;
+    color: #fff;
+}
+
+canvas {
+    display: block;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* ========== 加载界面 ========== */
+#loadingScreen {
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 120% 90% at 50% 115%, rgba(255, 106, 30, 0.16), transparent 55%),
+        radial-gradient(ellipse 90% 60% at 80% -10%, rgba(63, 106, 148, 0.28), transparent 60%),
+        linear-gradient(160deg, #0a0f16 0%, #0d141f 45%, #060a10 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+#loadingScreen::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0, 0, 0, 0.14) 3px, rgba(0, 0, 0, 0.14) 4px);
+    pointer-events: none;
+}
+
+.loading-content {
+    text-align: center;
+    position: relative;
+    z-index: 1;
+}
+
+.loading-content h1 {
+    font-size: 64px;
+    letter-spacing: 14px;
+    margin-bottom: 42px;
+    background: linear-gradient(180deg, #ffd28a 0%, var(--bf-accent) 45%, var(--bf-accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 2px 18px rgba(255, 140, 40, 0.35));
+    font-weight: 900;
+}
+
+.loading-bar-container {
+    width: 420px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    margin: 0 auto 18px;
+    clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
+}
+
+.loading-bar {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, var(--bf-accent), var(--bf-accent2));
+    transition: width 0.3s ease;
+    box-shadow: 0 0 12px rgba(255, 160, 50, 0.8);
+}
+
+#loadingText {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 13px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+}
+
+/* ========== 主菜单 ========== */
+#mainMenu {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+}
+
+.menu-bg {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 130% 80% at 20% 110%, rgba(255, 106, 30, 0.20), transparent 55%),
+        radial-gradient(ellipse 100% 70% at 85% -5%, rgba(64, 110, 155, 0.30), transparent 60%),
+        radial-gradient(ellipse 60% 45% at 60% 70%, rgba(150, 60, 20, 0.12), transparent 70%),
+        linear-gradient(160deg, #0a0f16 0%, #101823 40%, #060a10 100%);
+}
+
+.menu-bg::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0, 0, 0, 0.16) 3px, rgba(0, 0, 0, 0.16) 4px);
+}
+
+.menu-bg::after {
+    /* 缓慢横扫的光带，模拟探照灯 */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 30%, rgba(255, 190, 110, 0.05) 46%, rgba(255, 190, 110, 0.09) 50%, rgba(255, 190, 110, 0.05) 54%, transparent 70%);
+    background-size: 300% 100%;
+    animation: menuSweep 9s ease-in-out infinite;
+    pointer-events: none;
+}
+
+@keyframes menuSweep {
+    0%, 100% { background-position: 120% 0; }
+    50% { background-position: -20% 0; }
+}
+
+.menu-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    height: 100%;
+    padding-left: clamp(48px, 10vw, 160px);
+}
+
+.game-title {
+    font-size: clamp(64px, 9vw, 110px);
+    letter-spacing: 14px;
+    margin-bottom: 6px;
+    background: linear-gradient(180deg, #ffe0ad 0%, var(--bf-accent) 42%, var(--bf-accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 3px 26px rgba(255, 140, 40, 0.4));
+    font-weight: 900;
+    animation: titleIn 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes titleIn {
+    from { opacity: 0; transform: translateY(26px); letter-spacing: 26px; }
+    to { opacity: 1; transform: translateY(0); letter-spacing: 14px; }
+}
+
+.game-subtitle {
+    font-size: 17px;
+    letter-spacing: 18px;
+    color: rgba(255, 255, 255, 0.38);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    animation: fadeSlideIn 0.9s 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 标题下的战术分隔线 */
+.menu-content::before {
+    content: '';
+    order: 2;
+    width: 300px;
+    height: 2px;
+    margin: 6px 0 44px;
+    background: linear-gradient(90deg, var(--bf-accent), rgba(255, 179, 51, 0.25) 60%, transparent);
+    animation: fadeSlideIn 0.9s 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.game-title { order: 0; }
+.game-subtitle { order: 1; }
+.menu-buttons { order: 3; }
+
+@keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateX(-18px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.menu-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 320px;
+    animation: fadeSlideIn 0.9s 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.menu-btn {
+    position: relative;
+    padding: 15px 34px;
+    font-size: 17px;
+    background: rgba(16, 22, 30, 0.72);
+    border: 1px solid var(--bf-line);
+    border-left: 3px solid rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.88);
+    cursor: pointer;
+    transition: all 0.18s ease;
+    letter-spacing: 3px;
+    font-family: inherit;
+    text-align: left;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 100%, 0 100%);
+    backdrop-filter: blur(3px);
+}
+
+.menu-btn:hover {
+    background: rgba(255, 150, 40, 0.14);
+    border-left-color: var(--bf-accent);
+    color: #fff;
+    transform: translateX(8px);
+    box-shadow: -3px 0 18px rgba(255, 150, 40, 0.18);
+}
+
+.menu-btn.primary {
+    background: linear-gradient(100deg, rgba(255, 140, 30, 0.92), rgba(226, 88, 18, 0.92));
+    border-color: rgba(255, 190, 110, 0.55);
+    border-left-color: #ffd28a;
+    color: #fff;
+    font-weight: 700;
+    text-shadow: 0 1px 4px rgba(90, 30, 0, 0.5);
+}
+
+.menu-btn.primary:hover {
+    background: linear-gradient(100deg, #ffa030, #ff6a1e);
+    box-shadow: -3px 0 26px rgba(255, 140, 40, 0.45);
+}
+
+.menu-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* ========== 地图/模式选择 ========== */
+#mapModeSelect, #classSelect, #settingsMenu, #helpMenu, #pauseMenu {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background:
+        radial-gradient(ellipse 120% 80% at 15% 110%, rgba(255, 106, 30, 0.10), transparent 55%),
+        radial-gradient(ellipse 90% 60% at 85% -10%, rgba(60, 105, 150, 0.18), transparent 60%),
+        rgba(5, 8, 12, 0.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+
+.map-mode-content, .class-select-content, .settings-content, .help-content, .pause-content {
+    text-align: center;
+    max-width: 960px;
+    width: 92%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 20px;
+    animation: panelIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes panelIn {
+    from { opacity: 0; transform: translateY(18px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.map-mode-content h2, .class-select-content h2, .settings-content h2, .help-content h2, .pause-content h2 {
+    font-size: 34px;
+    margin-bottom: 28px;
+    letter-spacing: 6px;
+    font-weight: 800;
+    position: relative;
+    display: inline-block;
+    padding-bottom: 12px;
+}
+
+.map-mode-content h2::after, .class-select-content h2::after, .settings-content h2::after, .help-content h2::after, .pause-content h2::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    width: 70%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--bf-accent), transparent);
+}
+
+.select-section {
+    margin-bottom: 24px;
+}
+
+.select-section-title {
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.mode-options, .map-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+.option-card {
+    position: relative;
+    background: rgba(14, 19, 27, 0.78);
+    border: 1px solid var(--bf-line);
+    border-top: 2px solid rgba(255, 255, 255, 0.2);
+    padding: 16px 14px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    text-align: left;
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+    overflow: hidden;
+}
+
+.option-card::before {
+    /* 卡片主题色渐变条（由 JS 内联 --card-hue 或默认暖色） */
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 42px;
+    background: linear-gradient(180deg, rgba(255, 165, 60, 0.10), transparent);
+    pointer-events: none;
+}
+
+.option-card:hover {
+    background: rgba(24, 32, 44, 0.9);
+    border-color: rgba(255, 255, 255, 0.32);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+}
+
+.option-card.selected {
+    border-color: var(--bf-accent);
+    border-top-color: var(--bf-accent);
+    background: linear-gradient(180deg, rgba(255, 179, 51, 0.14), rgba(255, 179, 51, 0.05));
+    box-shadow: 0 0 22px rgba(255, 179, 51, 0.22), inset 0 0 18px rgba(255, 179, 51, 0.06);
+}
+
+.option-card.selected::after {
+    content: '✓';
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    color: var(--bf-accent);
+    font-weight: 900;
+    font-size: 15px;
+}
+
+/* 地图卡片顶部的色彩缩略图（由 JS 内联渐变生成天空/地面色带） */
+.map-preview {
+    position: relative;
+    height: 64px;
+    margin: -16px -14px 12px;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.map-preview::after {
+    /* 远山剪影 */
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 26%;
+    height: 34%;
+    background: rgba(10, 14, 18, 0.35);
+    clip-path: polygon(0 100%, 8% 55%, 18% 80%, 30% 35%, 44% 75%, 56% 45%, 70% 85%, 82% 50%, 92% 72%, 100% 40%, 100% 100%);
+}
+
+.map-preview-sun {
+    position: absolute;
+    top: 18%;
+    right: 16%;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: rgba(255, 240, 210, 0.95);
+    box-shadow: 0 0 14px 4px rgba(255, 230, 180, 0.55);
+}
+
+.option-name {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 6px;
+    color: #fff;
+}
+
+.option-desc {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.option-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.option-meta span {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.map-mode-summary {
+    background: rgba(255, 204, 68, 0.08);
+    border: 1px solid rgba(255, 204, 68, 0.3);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.summary-row {
+    display: flex;
+    gap: 10px;
+    padding: 4px 0;
+    font-size: 14px;
+}
+
+.summary-label {
+    color: rgba(255, 255, 255, 0.5);
+    min-width: 50px;
+}
+
+.summary-value {
+    color: #ffcc44;
+    font-weight: bold;
+}
+
+.map-mode-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+/* HUD 模式标签 */
+.score-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 120px;
+}
+
+.score-mode {
+    font-size: 11px;
+    color: rgba(255, 204, 68, 0.8);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+}
+
+.class-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.class-card {
+    position: relative;
+    background: rgba(14, 19, 27, 0.78);
+    border: 1px solid var(--bf-line);
+    border-bottom: 3px solid rgba(255, 255, 255, 0.18);
+    padding: 26px 16px 20px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+    overflow: hidden;
+}
+
+.class-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 90% 50% at 50% -10%, rgba(255, 165, 60, 0.10), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    pointer-events: none;
+}
+
+.class-card:hover {
+    background: rgba(24, 32, 44, 0.9);
+    transform: translateY(-5px);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+}
+
+.class-card:hover::before { opacity: 1; }
+
+.class-card.selected {
+    border-color: rgba(255, 179, 51, 0.7);
+    border-bottom-color: var(--bf-accent);
+    background: linear-gradient(180deg, rgba(255, 150, 40, 0.13), rgba(14, 19, 27, 0.85));
+    box-shadow: 0 0 26px rgba(255, 150, 40, 0.28);
+}
+
+.class-card.selected::before { opacity: 1; }
+
+.class-icon {
+    font-size: 46px;
+    margin-bottom: 12px;
+    filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.6));
+}
+
+.class-card h3 {
+    font-size: 21px;
+    margin-bottom: 12px;
+    color: var(--bf-accent);
+    letter-spacing: 3px;
+    font-weight: 800;
+}
+
+.class-card p {
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.58);
+    margin-bottom: 4px;
+    line-height: 1.45;
+}
+
+.weapon-select {
+    width: 100%;
+    margin: -10px auto 24px;
+    padding: 14px 16px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    text-align: left;
+}
+
+.weapon-select-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+    letter-spacing: 1px;
+}
+
+.secondary-weapon strong {
+    color: #ff8c00;
+    font-weight: 600;
+}
+
+.weapon-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+}
+
+.weapon-option {
+    min-height: 58px;
+    padding: 9px 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.weapon-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 140, 0, 0.55);
+    transform: translateY(-1px);
+}
+
+.weapon-option.selected {
+    background: rgba(255, 140, 0, 0.16);
+    border-color: #ff8c00;
+    box-shadow: 0 0 12px rgba(255, 140, 0, 0.22);
+}
+
+.weapon-option-name {
+    display: block;
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+}
+
+.weapon-option-stats {
+    display: block;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    line-height: 1.35;
+}
+
+/* 武器数据条：伤害/射速/射程三条微型条形图 */
+.weapon-stat-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 7px;
+}
+
+.weapon-stat-bars i {
+    display: block;
+    height: 3px;
+    background: linear-gradient(90deg, rgba(255, 179, 51, 0.85), rgba(255, 106, 30, 0.6));
+    border-radius: 1px;
+    position: relative;
+}
+
+.weapon-stat-bars i::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: -100%;
+    top: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.07);
+    z-index: -1;
+}
+
+.weapon-stat-bars i:nth-child(2) {
+    background: linear-gradient(90deg, rgba(127, 212, 255, 0.85), rgba(80, 150, 220, 0.55));
+}
+
+.weapon-stat-bars i:nth-child(3) {
+    background: linear-gradient(90deg, rgba(150, 230, 140, 0.85), rgba(90, 180, 90, 0.55));
+}
+
+/* ========== 设置 ========== */
+.setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.setting-row label {
+    width: 140px;
+    text-align: right;
+    font-size: 16px;
+}
+
+.setting-row input[type="range"] {
+    width: 300px;
+}
+
+.setting-row input[type="checkbox"] {
+    width: 24px;
+    height: 24px;
+}
+
+.setting-row span {
+    width: 50px;
+    text-align: left;
+    color: #ff8c00;
+}
+
+/* ========== 操作说明 ========== */
+.help-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 30px;
+}
+
+.help-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 15px;
+}
+
+kbd {
+    display: inline-block;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 13px;
+    min-width: 30px;
+    text-align: center;
+}
+
+/* ========== 游戏HUD ========== */
+#gameHUD {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+}
+
+.hud-panel {
+    position: absolute;
+}
+
+/* 准星 */
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 40px;
+    height: 40px;
+}
+
+.crosshair-line {
+    position: absolute;
+    background: rgba(0, 255, 100, 0.8);
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+    transition: all 0.1s ease;
+}
+
+.crosshair-line.top, .crosshair-line.bottom {
+    width: 2px;
+    height: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.crosshair-line.left, .crosshair-line.right {
+    width: 8px;
+    height: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.crosshair-line.top { top: 2px; }
+.crosshair-line.bottom { bottom: 2px; }
+.crosshair-line.left { left: 2px; }
+.crosshair-line.right { right: 2px; }
+
+.crosshair-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 2px;
+    background: rgba(0, 255, 100, 0.8);
+    border-radius: 50%;
+}
+
+#crosshair.sprinting .crosshair-line,
+#crosshair.sprinting .crosshair-dot {
+    opacity: 0.2;
+}
+
+#crosshair.aiming .crosshair-line {
+    opacity: 0;
+}
+
+#crosshair.aiming .crosshair-dot {
+    opacity: 1;
+}
+
+#crosshair.building .crosshair-line {
+    opacity: 0;
+}
+
+#crosshair.building .crosshair-dot {
+    width: 12px;
+    height: 12px;
+    background: transparent;
+    border: 2px solid #ff4545;
+    box-shadow: 0 0 7px rgba(255, 69, 69, 0.75);
+}
+
+#crosshair.building.valid .crosshair-dot {
+    border-color: #42ff7b;
+    box-shadow: 0 0 7px rgba(66, 255, 123, 0.75);
+}
+
+/* 命中标记 */
+#hitMarker {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 24px;
+    color: #ff3030;
+    text-shadow: 0 0 4px #000;
+    animation: hitFlash 0.3s ease;
+}
+
+#hitMarker.kill {
+    color: #ff0000;
+    font-size: 28px;
+}
+
+#hitMarker.headshot {
+    color: #ffaa00;
+    font-size: 32px;
+    text-shadow: 0 0 8px #ff6600, 0 0 4px #000;
+}
+
+#hitMarker.headshot::before {
+    content: '✖';
+}
+
+@keyframes hitFlash {
+0% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); }
+100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* 狙击镜遮罩 */
+#scopeOverlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 100;
+    background: radial-gradient(
+        circle at center,
+        transparent 0,
+        transparent calc(50vh - 2px),
+        rgba(0, 0, 0, 0.98) calc(50vh + 2px),
+        rgba(0, 0, 0, 0.98) 100%
+    );
+}
+
+.scope-circle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 100vh;
+    height: 100vh;
+    border-radius: 50%;
+    border: 2px solid rgba(0, 0, 0, 0.9);
+    box-shadow: 0 0 0 1px rgba(80, 80, 80, 0.3);
+    overflow: hidden;
+}
+
+/* 十字线 */
+.scope-crosshair-h {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 1px;
+    background: rgba(0, 0, 0, 0.6);
+    transform: translateY(-50%);
+}
+
+.scope-crosshair-v {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 1px;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    transform: translateX(-50%);
+}
+
+.scope-center-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 4px;
+    height: 4px;
+    background: rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 50%;
+}
+
+/* 密位点 */
+.scope-mil-dot {
+    position: absolute;
+    width: 3px;
+    height: 3px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 50%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.scope-mil-dot.m1 { top: 40%; }
+.scope-mil-dot.m2 { top: 60%; }
+.scope-mil-dot.m3 { top: 30%; }
+.scope-mil-dot.m4 { top: 70%; }
+
+/* 伤害指示器 */
+#damageIndicator {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.damage-dir {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 300px;
+    height: 300px;
+    margin: -150px 0 0 -150px;
+    border-radius: 50%;
+    background: radial-gradient(circle, transparent 60%, rgba(255, 0, 0, 0.4) 80%, rgba(255, 0, 0, 0));
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+}
+
+.damage-dir.active {
+    opacity: 1;
+    animation: damagePulse 0.5s ease;
+}
+
+@keyframes damagePulse {
+    0% { opacity: 0.8; }
+    100% { opacity: 0; }
+}
+
+/* 血量面板 */
+#healthPanel {
+    bottom: 30px;
+    left: 30px;
+    width: 280px;
+    padding: 12px 14px 10px;
+    background: linear-gradient(100deg, var(--bf-panel), rgba(10, 14, 20, 0.55) 85%, transparent);
+    border-left: 3px solid var(--bf-accent);
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 100%, 0 100%);
+}
+
+.health-bar-container {
+    position: relative;
+    width: 100%;
+    height: 26px;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    overflow: hidden;
+    clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+
+.health-bar {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #00cc44, #00ff66);
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.health-bar.low {
+    background: linear-gradient(90deg, #cc4400, #ff6600);
+}
+
+.health-bar.critical {
+    background: linear-gradient(90deg, #cc0000, #ff0000);
+    animation: criticalPulse 0.5s ease infinite;
+}
+
+@keyframes criticalPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+#healthText {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px #000;
+}
+
+.armor-info {
+    margin-top: 6px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* 武器面板 */
+#weaponPanel {
+    bottom: 30px;
+    right: 30px;
+    text-align: right;
+    min-width: 220px;
+    padding: 12px 14px 10px;
+    background: linear-gradient(260deg, var(--bf-panel), rgba(10, 14, 20, 0.55) 85%, transparent);
+    border-right: 3px solid var(--bf-accent);
+    clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.weapon-name {
+    font-size: 18px;
+    color: var(--bf-accent);
+    margin-bottom: 4px;
+    letter-spacing: 2px;
+    font-weight: 700;
+}
+
+.weapon-name.breath-hold {
+    color: #b8e6ff;
+    text-shadow: 0 0 8px rgba(120, 200, 255, 0.55);
+}
+
+.weapon-mode {
+    display: inline-block;
+    min-width: 46px;
+    margin-bottom: 4px;
+    padding: 2px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.42);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    text-align: center;
+}
+
+.weapon-mode.armed {
+    border-color: rgba(255, 140, 0, 0.7);
+    color: #ffb766;
+}
+
+.weapon-mode.braced {
+    border-color: rgba(120, 200, 255, 0.7);
+    color: #b8e6ff;
+}
+
+.ammo-info {
+    font-size: 32px;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+}
+
+.ammo-current { color: #fff; }
+.ammo-separator { color: rgba(255, 255, 255, 0.4); margin: 0 4px; }
+.ammo-reserve { color: rgba(255, 255, 255, 0.5); font-size: 24px; }
+
+.ammo-info.reloading {
+    color: #ff8c00;
+    animation: reloadFlash 0.5s ease infinite;
+}
+
+@keyframes reloadFlash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.weapon-slots {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.weapon-slot {
+    padding: 4px 12px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.weapon-slot.active {
+    background: rgba(255, 140, 0, 0.2);
+    border-color: #ff8c00;
+    color: #ff8c00;
+}
+
+/* 兵种技能面板 */
+.gadget-panel {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    justify-content: flex-end;
+    transition: opacity 0.3s;
+}
+
+.gadget-panel.ready {
+    border-color: rgba(0, 255, 100, 0.5);
+    box-shadow: 0 0 8px rgba(0, 255, 100, 0.2);
+}
+
+.gadget-panel.cooling {
+    opacity: 0.6;
+}
+
+.gadget-icon {
+    font-size: 22px;
+    line-height: 1;
+}
+
+.gadget-info {
+    flex: 1;
+    text-align: left;
+    min-width: 80px;
+}
+
+.gadget-name {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8);
+    margin-bottom: 3px;
+    white-space: nowrap;
+}
+
+.gadget-cooldown-bar {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.gadget-cooldown-fill {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #00ff66, #00cc44);
+    border-radius: 2px;
+    transition: width 0.1s linear;
+}
+
+.gadget-panel.cooling .gadget-cooldown-fill {
+    background: linear-gradient(90deg, #ff8800, #ff4400);
+}
+
+.gadget-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: bold;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+/* 工事建造面板 */
+.fortification-panel {
+    position: absolute;
+    bottom: 84px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 14px;
+    min-width: 260px;
+    background: linear-gradient(180deg, var(--bf-panel, rgba(10, 16, 22, 0.78)), rgba(5, 8, 12, 0.72));
+    border: 1px solid var(--bf-line, rgba(120, 140, 160, 0.25));
+    border-top: 2px solid rgba(255, 179, 51, 0.55);
+    clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 100%, 0 100%);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 13px;
+    text-align: center;
+    pointer-events: none;
+    backdrop-filter: blur(3px);
+}
+
+.fortification-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.fortification-title {
+    color: var(--bf-accent, #ffb733);
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.fortification-count {
+    color: rgba(255, 255, 255, 0.7);
+    font-family: 'Courier New', monospace;
+}
+
+.fortification-options {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.fortification-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+}
+
+.fortification-option.selected {
+    border-color: var(--bf-accent, #ffb733);
+    color: var(--bf-accent, #ffb733);
+    box-shadow: 0 0 8px rgba(255, 179, 51, 0.3);
+}
+
+.fortification-option.disabled {
+    opacity: 0.45;
+}
+
+.fo-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.fortification-status {
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 12px;
+}
+
+.fortification-hint {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 11px;
+}
+
+/* 比分面板 */
+#scorePanel {
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    background: linear-gradient(180deg, var(--bf-panel), rgba(10, 14, 20, 0.6));
+    padding: 8px 34px;
+    border: 1px solid var(--bf-line);
+    border-top: 2px solid rgba(255, 179, 51, 0.55);
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
+    backdrop-filter: blur(3px);
+}
+
+.team-score {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.team-score.friendly .team-points { color: #00aaff; }
+.team-score.enemy .team-points { color: #ff4444; }
+
+.team-name {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.team-points {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.score-timer {
+    font-size: 22px;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+}
+
+/* 目标信息 */
+#objectiveInfo {
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.4);
+    padding: 6px 20px;
+    border-radius: 4px;
+    font-size: 14px;
+    color: #ff8c00;
+}
+
+/* 击杀提示 */
+#killFeed {
+    position: absolute;
+    top: 100px;
+    right: 30px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 300px;
+}
+
+.kill-msg {
+    background: linear-gradient(260deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.45));
+    padding: 6px 14px;
+    border-right: 2px solid rgba(255, 179, 51, 0.5);
+    clip-path: polygon(8px 0, 100% 0, 100% 100%, 0 100%);
+    font-size: 13.5px;
+    animation: killMsgFade 5s ease forwards;
+}
+
+.kill-msg .killer { color: #00aaff; }
+.kill-msg .victim { color: #ff4444; }
+.kill-msg .weapon { color: #ff8c00; margin: 0 6px; }
+
+@keyframes killMsgFade {
+    0% { opacity: 0; transform: translateX(20px); }
+    10% { opacity: 1; transform: translateX(0); }
+    85% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* 小地图 */
+#minimap {
+    position: absolute;
+    top: 30px;
+    right: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    outline: 3px solid rgba(0, 0, 0, 0.45);
+    background: rgba(0, 0, 0, 0.6);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* 载具HUD */
+#vehicleHUD {
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    background: rgba(0, 0, 0, 0.65);
+    padding: 8px 24px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 140, 0, 0.25);
+    backdrop-filter: blur(4px);
+}
+
+.vh-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+    gap: 20px;
+}
+
+.vehicle-health-bar {
+    width: 340px;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    position: relative;
+}
+
+.vehicle-health {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #00cc44, #00ff66);
+    transition: width 0.3s ease;
+}
+
+.vehicle-health.low {
+    background: linear-gradient(90deg, #cc8800, #ffaa00);
+}
+
+.vehicle-health.critical {
+    background: linear-gradient(90deg, #cc0000, #ff3333);
+    animation: pulse-critical 0.8s ease-in-out infinite;
+}
+
+@keyframes pulse-critical {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.vehicle-health-segments {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    pointer-events: none;
+}
+
+.vehicle-health-segments::before,
+.vehicle-health-segments::after {
+    content: '';
+    flex: 1;
+    border-right: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+.vehicle-health-segments::after {
+    border-right: none;
+}
+
+#vehicleName {
+    font-size: 15px;
+    color: #ff8c00;
+    font-weight: bold;
+}
+
+#vehicleSeat {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.vh-bottom-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 24px;
+    margin-top: 4px;
+}
+
+.vh-speedo, .vh-altitude, .vh-weapon {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.vh-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    text-transform: uppercase;
+}
+
+#vehicleSpeed, #vehicleAltitude {
+    font-size: 18px;
+    font-weight: bold;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    min-width: 30px;
+    text-align: right;
+}
+
+.vh-unit {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.vh-cooldown-bar {
+    width: 80px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.vh-cooldown {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #ff8c00, #ffcc00);
+    transition: width 0.1s linear;
+}
+
+/* 载具弹药显示 */
+.vh-ammo {
+    margin-top: 4px;
+    font-size: 11px;
+    color: rgba(255, 220, 180, 0.9);
+    font-family: monospace;
+    text-align: center;
+    letter-spacing: 0.5px;
+}
+
+.vh-ammo.low {
+    color: #ff6464;
+    text-shadow: 0 0 6px rgba(255, 80, 80, 0.6);
+    animation: ammoLowPulse 0.8s ease-in-out infinite;
+}
+
+@keyframes ammoLowPulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+/* 载具准星 */
+#vehicleCrosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    pointer-events: none;
+}
+
+.vc-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 4px;
+    height: 4px;
+    background: rgba(255, 140, 0, 0.9);
+    border-radius: 50%;
+}
+
+.vc-ring {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 30px;
+    height: 30px;
+    border: 1px solid rgba(255, 140, 0, 0.4);
+    border-radius: 50%;
+}
+
+.vc-bracket {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border: 2px solid rgba(255, 140, 0, 0.7);
+}
+
+.vc-tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+.vc-tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+.vc-bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+.vc-br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+#vehicleCrosshair.aircraft {
+    width: 76px;
+    height: 76px;
+}
+
+#vehicleCrosshair.aircraft .vc-dot {
+    width: 6px;
+    height: 6px;
+    box-shadow: 0 0 8px rgba(255, 140, 0, 0.85);
+}
+
+#vehicleCrosshair.aircraft .vc-ring {
+    width: 38px;
+    height: 38px;
+    border-style: dashed;
+}
+
+#vehicleCrosshair.aircraft::before,
+#vehicleCrosshair.aircraft::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 18px;
+    height: 2px;
+    background: rgba(255, 140, 0, 0.75);
+    box-shadow: 0 0 5px rgba(255, 140, 0, 0.45);
+}
+
+#vehicleCrosshair.aircraft::before {
+    left: 6px;
+}
+
+#vehicleCrosshair.aircraft::after {
+    right: 6px;
+}
+
+/* 载具状态行 */
+.vh-status-row {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 6px;
+    min-height: 18px;
+}
+
+.vh-status-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+    animation: statusBlink 1s ease-in-out infinite;
+}
+
+.vh-status-item.hidden {
+    display: none !important;
+}
+
+#vehicleDriftStatus {
+    background: rgba(255, 200, 0, 0.2);
+    color: #ffc800;
+    border: 1px solid rgba(255, 200, 0, 0.4);
+}
+
+#vehicleDamageStatus {
+    background: rgba(255, 100, 0, 0.2);
+    color: #ff6600;
+    border: 1px solid rgba(255, 100, 0, 0.4);
+}
+
+#vehicleCriticalStatus {
+    background: rgba(255, 0, 0, 0.25);
+    color: #ff3333;
+    border: 1px solid rgba(255, 0, 0, 0.5);
+}
+
+@keyframes statusBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.vh-status-icon {
+    font-size: 13px;
+}
+
+/* 载具炮塔方向指示器 */
+#vehicleTurretIndicator {
+    position: absolute;
+    bottom: 200px;
+    right: 30px;
+    width: 80px;
+    height: 80px;
+    pointer-events: none;
+}
+
+.vti-compass {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 140, 0, 0.3);
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.vti-hull-arrow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 3px;
+    height: 30px;
+    background: rgba(255, 255, 255, 0.4);
+    transform: translate(-50%, -100%);
+    transform-origin: bottom center;
+    border-radius: 2px;
+}
+
+.vti-turret-arrow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 3px;
+    height: 35px;
+    background: #ff8c00;
+    transform: translate(-50%, -100%);
+    transform-origin: bottom center;
+    border-radius: 2px;
+    box-shadow: 0 0 4px rgba(255, 140, 0, 0.6);
+    transition: transform 0.05s linear;
+}
+
+.vti-turret-arrow::before {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-bottom: 8px solid #ff8c00;
+}
+
+/* 互动提示 */
+#interactionPrompt {
+    position: absolute;
+    bottom: 200px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6);
+    padding: 8px 20px;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+/* 换弹指示 */
+#reloadIndicator {
+    position: absolute;
+    bottom: 120px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #ff8c00;
+    font-size: 18px;
+    animation: reloadFlash 0.5s ease infinite;
+}
+
+/* 死亡画面 */
+#deathScreen {
+    position: absolute;
+    inset: 0;
+    background: rgba(100, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.death-content {
+    text-align: center;
+}
+
+.death-content h2 {
+    font-size: 48px;
+    color: #ff4444;
+    margin-bottom: 20px;
+}
+
+#killerName {
+    font-size: 20px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 30px;
+}
+
+#respawnTimer {
+    font-size: 24px;
+    color: #ff8c00;
+}
+
+/* FPS */
+#fpsCounter {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    font-size: 12px;
+    color: rgba(0, 255, 100, 0.7);
+    font-family: monospace;
+}
+
+/* 得分板 */
+#scoreboard {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.scoreboard-content {
+    width: 800px;
+    max-height: 80vh;
+}
+
+.scoreboard-content h2 {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.scoreboard-teams {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.sb-team h3 {
+    color: #00aaff;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.sb-team:last-child h3 {
+    color: #ff4444;
+}
+
+.sb-player {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    margin-bottom: 4px;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.sb-player .name { font-weight: bold; }
+.sb-player .score { color: #ff8c00; }
+
+/* 通知 */
+#notification {
+    position: absolute;
+    top: 150px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 20px;
+    color: #ff8c00;
+    text-align: center;
+    text-shadow: 2px 2px 4px #000;
+}
+
+/* 载具控制提示 */
+#vehicleControls {
+    position: absolute;
+    bottom: 30px;
+    left: 30px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+    transition: opacity 1s ease;
+    animation: vcFadeOut 1s ease 6s forwards;
+    pointer-events: none;
+}
+
+@keyframes vcFadeOut {
+    to { opacity: 0; }
+}
+
+/* 按住 H 键时临时恢复提示可见 */
+#vehicleControls.show-hint {
+    opacity: 0.9 !important;
+    animation: none;
+}
+
+.vc-item {
+    margin-bottom: 4px;
+}
+
+/* 游戏结束 */
+#gameOverScreen {
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 100% 70% at 50% 120%, rgba(255, 106, 30, 0.14), transparent 60%),
+        rgba(4, 6, 9, 0.94);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(5px);
+}
+
+.gameover-content {
+    text-align: center;
+    animation: panelIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+#gameOverTitle {
+    font-size: 72px;
+    margin-bottom: 26px;
+    font-weight: 900;
+    letter-spacing: 10px;
+}
+
+#gameOverTitle.victory {
+    background: linear-gradient(180deg, #b8ffce, #22dd77);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 30px rgba(40, 220, 120, 0.4));
+}
+
+#gameOverTitle.defeat {
+    background: linear-gradient(180deg, #ff9a8a, #dd2222);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 30px rgba(220, 50, 40, 0.4));
+}
+
+#gameOverStats {
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 30px;
+}
+
+.go-stat-grid {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+.go-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 96px;
+    padding: 14px 12px 10px;
+    background: rgba(14, 19, 27, 0.8);
+    border: 1px solid var(--bf-line);
+    border-top: 2px solid rgba(255, 179, 51, 0.55);
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+}
+
+.go-num {
+    font-size: 34px;
+    font-weight: 800;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+}
+
+.go-label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 3px;
+    margin-top: 2px;
+}
+
+.go-final-score {
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.6);
+    letter-spacing: 2px;
+}
+
+.go-final-score strong {
+    color: var(--bf-accent);
+    font-size: 20px;
+    margin: 0 4px;
+}
+
+/* ========== 体力条 ========== */
+.stamina-bar-container {
+    width: 100%;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 4px;
+}
+
+.stamina-bar {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #ffaa00, #ffdd44);
+    transition: width 0.15s ease, background 0.3s ease;
+}
+
+.stamina-bar.exhausted {
+    background: linear-gradient(90deg, #cc0000, #ff3333);
+    animation: criticalPulse 0.5s ease infinite;
+}
+
+.stamina-bar.low {
+    background: linear-gradient(90deg, #cc6600, #ff8800);
+}
+
+/* ========== 侧身指示 ========== */
+#leanIndicator {
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.5);
+    padding: 4px 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    color: #ff8c00;
+    border: 1px solid rgba(255, 140, 0, 0.3);
+}
+
+/* ========== 重生保护指示 ========== */
+#spawnProtectionIndicator {
+    position: absolute;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 150, 255, 0.2);
+    padding: 4px 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    color: #00aaff;
+    border: 1px solid rgba(0, 170, 255, 0.5);
+    animation: protectionPulse 1s ease-in-out infinite;
+}
+
+@keyframes protectionPulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}
+
+/* ========== 票数显示 ========== */
+.team-tickets {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: -2px;
+}
+
+.team-tickets::before {
+    content: '🎫 ';
+}
+
+/* ========== 压制效果遮罩 ========== */
+#suppressionOverlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    backdrop-filter: blur(0px);
+    background: rgba(80, 80, 80, 0);
+    transition: backdrop-filter 0.2s, background 0.2s;
+    z-index: 95;
+}
+
+/* ========== 低血量暗角 ========== */
+#lowHealthVignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(
+        ellipse at center,
+        transparent 30%,
+        rgba(120, 0, 0, 0) 60%,
+        rgba(180, 0, 0, 0) 100%
+    );
+    transition: background 0.3s;
+    z-index: 96;
+}
+
+#lowHealthVignette.active {
+    background: radial-gradient(
+        ellipse at center,
+        transparent 30%,
+        rgba(120, 0, 0, 0.3) 60%,
+        rgba(180, 0, 0, 0.6) 100%
+    );
+    animation: vignettePulse 1.2s ease-in-out infinite;
+}
+
+@keyframes vignettePulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+/* ========== 受击红闪 ========== */
+#damageFlash {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(
+        ellipse at center,
+        rgba(180, 0, 0, 0.05) 0%,
+        rgba(140, 0, 0, 0.35) 55%,
+        rgba(90, 0, 0, 0.55) 100%
+    );
+    opacity: 0;
+    transition: opacity 0.12s ease-out;
+    z-index: 97;
+    animation: damageFlashPulse 0.18s ease-out;
+}
+
+#damageFlash.hidden {
+    display: none;
+}
+
+@keyframes damageFlashPulse {
+    0% { opacity: 0.55; }
+    100% { opacity: 0; }
+}
+
+/* ========== 倒地状态覆盖层 ========== */
+#downedOverlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(
+        ellipse at center,
+        rgba(40, 20, 0, 0.35) 0%,
+        rgba(20, 10, 0, 0.55) 70%,
+        rgba(0, 0, 0, 0.7) 100%
+    );
+    pointer-events: none;
+    z-index: 200;
+    backdrop-filter: blur(1px);
+}
+
+#downedOverlay.hidden {
+    display: none;
+}
+
+.downed-content {
+    text-align: center;
+    background: rgba(10, 14, 20, 0.85);
+    border: 2px solid rgba(255, 140, 0, 0.5);
+    border-radius: 12px;
+    padding: 28px 48px;
+    box-shadow: 0 0 40px rgba(255, 140, 0, 0.3);
+    animation: downedPulse 2s ease-in-out infinite;
+}
+
+@keyframes downedPulse {
+    0%, 100% { box-shadow: 0 0 40px rgba(255, 140, 0, 0.3); }
+    50% { box-shadow: 0 0 60px rgba(255, 140, 0, 0.5); }
+}
+
+#downedTitle {
+    font-size: 42px;
+    color: #ff8c00;
+    margin-bottom: 8px;
+    text-shadow: 0 0 20px rgba(255, 140, 0, 0.6);
+    letter-spacing: 2px;
+}
+
+.downed-subtitle {
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.75);
+    margin-bottom: 24px;
+}
+
+.downed-bleed {
+    margin-bottom: 20px;
+}
+
+.bleed-label {
+    font-size: 14px;
+    color: rgba(255, 200, 200, 0.9);
+    margin-bottom: 6px;
+}
+
+.bleed-label #bleedOutText {
+    color: #ff6464;
+    font-weight: bold;
+    font-family: monospace;
+}
+
+.bleed-bar-bg {
+    width: 320px;
+    height: 10px;
+    background: rgba(60, 20, 20, 0.8);
+    border: 1px solid rgba(255, 80, 80, 0.4);
+    border-radius: 5px;
+    overflow: hidden;
+    margin: 0 auto;
+}
+
+.bleed-bar-fill {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #ff4444, #ff8c00);
+    transition: width 0.15s linear;
+    box-shadow: 0 0 8px rgba(255, 68, 68, 0.6);
+}
+
+.downed-skip {
+    margin-top: 16px;
+}
+
+.skip-hint {
+    font-size: 13px;
+    color: rgba(180, 220, 255, 0.85);
+    margin-bottom: 6px;
+}
+
+.skip-hint kbd {
+    background: rgba(0, 136, 255, 0.2);
+    border: 1px solid rgba(0, 136, 255, 0.5);
+    border-radius: 3px;
+    padding: 1px 8px;
+    color: #88ccff;
+    font-family: monospace;
+}
+
+.skip-bar-bg {
+    width: 320px;
+    height: 8px;
+    background: rgba(20, 30, 50, 0.8);
+    border: 1px solid rgba(0, 136, 255, 0.4);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 0 auto;
+}
+
+.skip-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #0088ff, #00ccff);
+    transition: width 0.1s linear;
+    box-shadow: 0 0 6px rgba(0, 136, 255, 0.6);
+}
+
+/* ========== 浮动伤害数字 ========== */
+#damageNumbers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 97;
+}
+
+.damage-number {
+    position: absolute;
+    font-size: 22px;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+    text-shadow: 2px 2px 4px #000, 0 0 6px rgba(0,0,0,0.8);
+    animation: damageNumberFloat 1.2s ease-out forwards;
+    pointer-events: none;
+}
+
+.damage-number.normal { color: #ffffff; }
+.damage-number.headshot { color: #ff4444; font-size: 28px; }
+.damage-number.critical { color: #ff8800; }
+.damage-number.heal { color: #00ff66; }
+
+@keyframes damageNumberFloat {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(0.5);
+    }
+    20% {
+        opacity: 1;
+        transform: translate(-50%, -10px) scale(1.2);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -60px) scale(1);
+    }
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+/* ========== 移动端触控 UI ========== */
+#mobileControls {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 150;
+}
+
+#mobileControls .mobile-btn,
+#mobileControls #joystickArea {
+    pointer-events: auto;
+}
+
+/* 虚拟摇杆 */
+#joystickArea {
+    position: absolute;
+    bottom: 40px;
+    left: 40px;
+    width: 140px;
+    height: 140px;
+}
+
+#joystickBase {
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#joystickThumb {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    border: 2px solid rgba(255, 255, 255, 0.45);
+    position: absolute;
+    transition: none;
+    will-change: transform;
+}
+
+/* 右侧动作按钮 */
+#mobileButtons {
+    position: absolute;
+    bottom: 30px;
+    right: 20px;
+    display: grid;
+    grid-template-columns: repeat(2, 56px);
+    gap: 10px;
+    align-items: end;
+}
+
+.mobile-btn {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.mobile-btn:active,
+.mobile-btn.pressed {
+    background: rgba(255, 140, 0, 0.35);
+    border-color: rgba(255, 140, 0, 0.7);
+}
+
+.shoot-btn {
+    width: 76px;
+    height: 76px;
+    font-size: 16px;
+    background: rgba(255, 60, 30, 0.2);
+    border-color: rgba(255, 80, 50, 0.5);
+    grid-column: 1 / -1;
+    justify-self: end;
+}
+
+.shoot-btn:active,
+.shoot-btn.pressed {
+    background: rgba(255, 60, 30, 0.5);
+}
+
+.ads-btn {
+    background: rgba(100, 180, 255, 0.12);
+    border-color: rgba(100, 180, 255, 0.35);
+}
+
+.ads-btn:active,
+.ads-btn.pressed {
+    background: rgba(100, 180, 255, 0.35);
+}
+
+.ads-btn.active {
+    background: rgba(100, 180, 255, 0.3);
+    border-color: rgba(100, 180, 255, 0.7);
+}
+
+/* 左上/右上快捷按钮 */
+#mobileTopButtons {
+    position: absolute;
+    top: 12px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 12px;
+    pointer-events: none;
+}
+
+#mobileTopButtons .mobile-btn {
+    pointer-events: auto;
+}
+
+.top-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* 武器切换 */
+#mobileWeaponSwitch {
+    position: absolute;
+    bottom: 200px;
+    right: 20px;
+    display: flex;
+    gap: 8px;
+    pointer-events: none;
+}
+
+#mobileWeaponSwitch .mobile-btn {
+    pointer-events: auto;
+}
+
+.weapon-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 13px;
+}
+
+.weapon-btn.active {
+    background: rgba(255, 140, 0, 0.25);
+    border-color: rgba(255, 140, 0, 0.6);
+    color: #ff8c00;
+}
+
+/* ========== 部署/重生界面 ========== */
+#deployScreen {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 10, 15, 0.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.deploy-content {
+    background: linear-gradient(135deg, #0d1117, #161b22);
+    border: 1px solid rgba(0, 136, 255, 0.3);
+    border-radius: 12px;
+    padding: 32px;
+    width: 700px;
+    max-height: 85vh;
+    overflow-y: auto;
+    text-align: center;
+}
+
+.deploy-content h2 {
+    font-size: 24px;
+    margin-bottom: 8px;
+    color: #fff;
+    letter-spacing: 2px;
+}
+
+.deploy-timer {
+    color: #ff9900;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.deploy-timer span {
+    font-size: 22px;
+    font-weight: bold;
+}
+
+.deploy-points {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+.deploy-point-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 16px 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 130px;
+    text-align: center;
+}
+
+.deploy-point-card:hover {
+    border-color: #00aaff;
+    background: rgba(0, 170, 255, 0.1);
+}
+
+.deploy-point-card.selected {
+    border-color: #00ff88;
+    background: rgba(0, 255, 136, 0.15);
+    box-shadow: 0 0 12px rgba(0, 255, 136, 0.3);
+}
+
+.deploy-point-card .dp-letter {
+    font-size: 28px;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.deploy-point-card .dp-name {
+    font-size: 12px;
+    color: #aaa;
+}
+
+.deploy-point-card .dp-status {
+    font-size: 11px;
+    margin-top: 6px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.deploy-point-card .dp-status.friendly { background: rgba(0, 170, 255, 0.2); color: #00aaff; }
+.deploy-point-card .dp-status.enemy { background: rgba(255, 68, 68, 0.2); color: #ff4444; }
+.deploy-point-card .dp-status.neutral { background: rgba(136, 136, 136, 0.2); color: #aaa; }
+.deploy-point-card .dp-status.contested { background: rgba(255, 170, 0, 0.2); color: #ffaa00; }
+
+.deploy-info {
+    margin-bottom: 16px;
+    text-align: left;
+}
+
+.deploy-squad h4 {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.deploy-squad-member {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+.deploy-squad-member.selected {
+    border: 1px solid rgba(0, 255, 136, 0.5);
+    background: rgba(0, 255, 136, 0.12);
+}
+
+.deploy-squad-member .dsm-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.deploy-squad-member .dsm-status.alive { background: #00ff66; }
+.deploy-squad-member .dsm-status.dead { background: #ff4444; }
+
+#btnDeployNow {
+    margin-top: 12px;
+}
+
+#btnDeployNow:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ========== 罗盘条 ========== */
+#compassBar {
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 400px;
+    height: 28px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 100;
+}
+
+.compass-strip {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    will-change: transform;
+}
+
+.compass-tick {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    height: 100%;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    position: relative;
+}
+
+.compass-tick.major {
+    color: #fff;
+    font-weight: bold;
+    font-size: 13px;
+}
+
+.compass-tick .tick-line {
+    width: 1px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.3);
+    margin-bottom: 2px;
+}
+
+.compass-tick.major .tick-line {
+    height: 10px;
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.compass-center-marker {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 100%;
+    background: #ff9900;
+    z-index: 2;
+    box-shadow: 0 0 4px rgba(255, 153, 0, 0.8);
+}
+
+.compass-objective {
+    position: absolute;
+    top: 2px;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 3;
+    white-space: nowrap;
+}
+
+/* ========== 3D世界标记 ========== */
+#worldMarkers {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 50;
+}
+
+.world-marker {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+.world-marker .wm-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 14px;
+    border: 2px solid rgba(0, 0, 0, 0.5);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.world-marker .wm-icon.friendly { background: rgba(0, 136, 255, 0.8); color: #fff; }
+.world-marker .wm-icon.enemy { background: rgba(255, 51, 0, 0.8); color: #fff; }
+.world-marker .wm-icon.neutral { background: rgba(136, 136, 136, 0.8); color: #fff; }
+.world-marker .wm-icon.supply {
+    background: rgba(255, 170, 0, 0.92);
+    color: #111;
+    border-color: rgba(0, 0, 0, 0.55);
+}
+.world-marker .wm-icon.order {
+    background: rgba(255, 140, 0, 0.95);
+    color: #111;
+    border-color: rgba(255, 255, 255, 0.45);
+    box-shadow: 0 0 12px rgba(255, 140, 0, 0.55);
+}
+.world-marker .wm-icon.spotted {
+    background: rgba(255, 40, 40, 0.92);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.35);
+}
+.world-marker .wm-icon.objective {
+    background: rgba(255, 100, 32, 0.94);
+    color: #111;
+    border-color: rgba(255, 230, 160, 0.7);
+    box-shadow: 0 0 14px rgba(255, 100, 32, 0.5);
+}
+
+.world-marker .wm-label {
+    font-size: 11px;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    margin-top: 2px;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.world-marker .wm-distance {
+    font-size: 10px;
+    color: #aaa;
+    margin-top: 1px;
+}
+
+/* ========== 连杀提示 ========== */
+#killstreakPopup {
+    position: fixed;
+    top: 35%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    text-align: center;
+    animation: killstreakFade 3s ease-out forwards;
+    pointer-events: none;
+}
+
+#killstreakPopup .ks-title {
+    font-size: 28px;
+    font-weight: bold;
+    color: #ff9900;
+    text-shadow: 0 0 12px rgba(255, 153, 0, 0.6), 0 2px 4px rgba(0, 0, 0, 0.8);
+    letter-spacing: 3px;
+}
+
+#killstreakPopup .ks-subtitle {
+    font-size: 14px;
+    color: #fff;
+    margin-top: 4px;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+@keyframes killstreakFade {
+    0% { opacity: 0; transform: translateX(-50%) translateY(20px) scale(0.8); }
+    15% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    80% { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(1.1); }
+}
+
+/* Visual pass: tactical UI polish without changing text content. */
+:root {
+    --ui-bg: rgba(7, 11, 14, 0.72);
+    --ui-bg-strong: rgba(8, 12, 16, 0.86);
+    --ui-border: rgba(190, 214, 220, 0.18);
+    --ui-border-hot: rgba(255, 153, 64, 0.45);
+    --ui-blue: #69b9ff;
+    --ui-red: #ff6d5d;
+    --ui-green: #69ff9d;
+    --ui-amber: #ffb45f;
+}
+
+.menu-bg {
+    background:
+        radial-gradient(circle at 25% 28%, rgba(89, 142, 166, 0.22), transparent 34%),
+        radial-gradient(circle at 80% 72%, rgba(160, 80, 54, 0.20), transparent 32%),
+        linear-gradient(135deg, #080b0f, #151c22 52%, #24251d);
+}
+
+.menu-bg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px),
+        radial-gradient(circle at center, transparent 20%, rgba(0,0,0,0.45) 100%);
+    background-size: 44px 44px, 44px 44px, 100% 100%;
+    mix-blend-mode: screen;
+    opacity: 0.32;
+}
+
+.menu-content,
+.class-select-content,
+.settings-content,
+.help-content,
+.pause-content {
+    filter: drop-shadow(0 24px 60px rgba(0, 0, 0, 0.5));
+}
+
+.game-title,
+.loading-content h1 {
+    letter-spacing: 10px;
+    background: linear-gradient(180deg, #fff3d3 0%, #ffb457 48%, #f05c35 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.menu-btn,
+.weapon-option,
+.class-card,
+.deploy-point-card,
+.deploy-squad-member {
+    border-radius: 6px;
+}
+
+.menu-btn {
+    background: linear-gradient(180deg, rgba(255,255,255,0.11), rgba(255,255,255,0.045));
+    border-color: rgba(220, 236, 240, 0.18);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 28px rgba(0,0,0,0.22);
+}
+
+.menu-btn:hover {
+    background: linear-gradient(180deg, rgba(255,255,255,0.17), rgba(255,255,255,0.07));
+    border-color: var(--ui-border-hot);
+}
+
+.menu-btn.primary {
+    background: linear-gradient(180deg, #ffb257, #e55e2d);
+    color: #101010;
+    font-weight: 800;
+    border-color: rgba(255, 226, 170, 0.72);
+}
+
+.class-card,
+.weapon-select,
+.deploy-content,
+.scoreboard-content {
+    background: linear-gradient(180deg, rgba(19, 27, 32, 0.92), rgba(8, 12, 16, 0.88));
+    border-color: rgba(180, 210, 220, 0.18);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 22px 70px rgba(0,0,0,0.36);
+}
+
+.class-card:hover,
+.weapon-option:hover,
+.deploy-point-card:hover {
+    border-color: rgba(105, 185, 255, 0.55);
+    background: linear-gradient(180deg, rgba(37, 53, 61, 0.9), rgba(13, 20, 24, 0.86));
+}
+
+.class-card.selected,
+.weapon-option.selected,
+.deploy-point-card.selected {
+    border-color: var(--ui-amber);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), 0 0 28px rgba(255, 151, 58, 0.22);
+}
+
+.hud-panel,
+#vehicleHUD,
+#compassBar,
+#notification {
+    background: linear-gradient(180deg, var(--ui-bg), rgba(5, 8, 10, 0.66));
+    border: 1px solid var(--ui-border);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 14px 34px rgba(0,0,0,0.34);
+    backdrop-filter: blur(6px);
+}
+
+#healthPanel,
+#weaponPanel {
+    padding: 12px 14px;
+    border-radius: 0;
+}
+
+#healthPanel {
+    border-left: 3px solid var(--bf-accent);
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 100%, 0 100%);
+}
+
+#weaponPanel {
+    border-right: 3px solid var(--bf-accent);
+    clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%);
+}
+
+#scorePanel {
+    padding: 8px 34px;
+    border-color: rgba(255, 255, 255, 0.16);
+    border-top: 2px solid rgba(255, 179, 51, 0.55);
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
+    background:
+        linear-gradient(90deg, rgba(65, 155, 255, 0.14), transparent 26%, transparent 74%, rgba(255, 90, 70, 0.13)),
+        linear-gradient(180deg, var(--ui-bg-strong), rgba(6, 8, 10, 0.78));
+}
+
+#objectiveInfo {
+    border-color: rgba(255, 180, 95, 0.35);
+    color: #ffd18b;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+}
+
+.health-bar-container,
+.stamina-bar-container,
+.vehicle-health-bar,
+.gadget-cooldown-bar {
+    background: rgba(0, 0, 0, 0.52);
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 1px 4px rgba(0,0,0,0.8);
+}
+
+.health-bar {
+    background: linear-gradient(90deg, #0fb866, #8dff9f);
+}
+
+.stamina-bar {
+    background: linear-gradient(90deg, #ff9645, #ffe07b);
+}
+
+.weapon-name {
+    color: #ffd18b;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+}
+
+.ammo-info {
+    text-shadow: 0 2px 8px rgba(0,0,0,0.9);
+}
+
+.weapon-slot,
+.weapon-mode,
+.gadget-panel {
+    background: rgba(0, 0, 0, 0.42);
+    border-color: rgba(220, 240, 245, 0.18);
+}
+
+#crosshair {
+    width: 48px;
+    height: 48px;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.9)) drop-shadow(0 0 5px rgba(95,255,160,0.34));
+}
+
+.crosshair-line {
+    background: rgba(106, 255, 157, 0.92);
+    box-shadow: 0 0 2px rgba(0,0,0,0.95), 0 0 8px rgba(75,255,145,0.35);
+}
+
+.crosshair-line.top,
+.crosshair-line.bottom {
+    width: 2px;
+    height: 10px;
+}
+
+.crosshair-line.left,
+.crosshair-line.right {
+    width: 10px;
+    height: 2px;
+}
+
+.crosshair-dot {
+    width: 4px;
+    height: 4px;
+    background: #c8ffd9;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.75), 0 0 8px rgba(90,255,150,0.55);
+}
+
+#hitMarker {
+    color: #fff2cf;
+    text-shadow: 0 0 8px rgba(255,95,64,0.9), 0 2px 4px #000;
+}
+
+#minimap {
+    border-color: rgba(200, 230, 240, 0.24);
+    background: rgba(5, 9, 12, 0.72);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 12px 30px rgba(0,0,0,0.38);
+}
+
+#vehicleHUD {
+    padding: 10px 28px;
+    border-radius: 7px;
+    border-color: rgba(255, 180, 95, 0.34);
+}
+
+#vehicleControls,
+.vti-help {
+    padding: 9px 12px;
+    border-radius: 6px;
+    background: rgba(5, 8, 10, 0.56);
+    border: 1px solid rgba(220, 240, 245, 0.13);
+    backdrop-filter: blur(5px);
+}
+
+#notification {
+    min-width: 240px;
+    padding: 10px 18px;
+    border-radius: 6px;
+    color: #ffd18b;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+}
+
+#compassBar {
+    height: 32px;
+    border-color: rgba(220, 240, 245, 0.18);
+}
+
+.compass-center-marker {
+    background: var(--ui-amber);
+    box-shadow: 0 0 10px rgba(255,180,95,0.85);
+}
+
+.world-marker {
+    filter: drop-shadow(0 5px 12px rgba(0,0,0,0.55));
+}
+
+.world-marker .wm-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 7px;
+    border-color: rgba(255,255,255,0.36);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 3px 10px rgba(0,0,0,0.45);
+}
+
+.world-marker .wm-label,
+.world-marker .wm-distance {
+    background: rgba(3, 6, 8, 0.72);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.9);
+}
+
+.kill-msg {
+    background: linear-gradient(90deg, rgba(8, 13, 16, 0.86), rgba(19, 25, 29, 0.72));
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 0 10px 26px rgba(0,0,0,0.28);
+}
+
+#deployScreen,
+#classSelect,
+#settingsMenu,
+#helpMenu,
+#pauseMenu,
+#scoreboard {
+    background:
+        radial-gradient(circle at 50% 35%, rgba(67, 102, 118, 0.24), transparent 36%),
+        rgba(3, 6, 9, 0.88);
+}
+
+.deploy-content {
+    border-radius: 8px;
+    border-color: rgba(105, 185, 255, 0.32);
+}
+
+.deploy-point-card,
+.deploy-squad-member {
+    background: rgba(255,255,255,0.055);
+    border: 1px solid rgba(255,255,255,0.12);
+}
+
+/* Keep the combat HUD stacked instead of overlapping at the top center. */
+#scorePanel {
+    top: 14px;
+    min-width: 270px;
+}
+
+#scorePanel .team-points {
+    font-size: 24px;
+}
+
+#scorePanel .score-timer {
+    font-size: 19px;
+}
+
+#compassBar {
+    top: 82px;
+}
+
+#objectiveInfo {
+    top: 122px;
+}
+
+#notification {
+    top: 172px;
+}
+
