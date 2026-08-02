@@ -1,1 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>前线突击</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="css/style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "./js/vendor/three.module.js",
+            "three/addons/": "./js/vendor/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <!-- 加载界面 -->
+    <div id="loadingScreen">
+        <div class="loading-content">
+            <h1>前线突击</h1>
+            <div class="loading-bar-container">
+                <div class="loading-bar" id="loadingBar"></div>
+            </div>
+            <p id="loadingText">正在加载...</p>
+        </div>
+    </div>
 
+    <!-- 主菜单 -->
+    <div id="mainMenu" class="hidden">
+        <div class="menu-bg"></div>
+        <div class="menu-content">
+            <h1 class="game-title">前线突击</h1>
+            <p class="game-subtitle">FRONTLINE STRIKE</p>
+            <div class="menu-buttons">
+                <button id="btnStart" class="menu-btn primary">开始游戏</button>
+                <button id="btnSettings" class="menu-btn">设置</button>
+                <button id="btnHelp" class="menu-btn">操作说明</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 地图/模式选择界面 -->
+    <div id="mapModeSelect" class="hidden">
+        <div class="map-mode-content">
+            <h2>选择地图与模式</h2>
+            <!-- 模式选择 -->
+            <div class="select-section">
+                <h3 class="select-section-title">游戏模式</h3>
+                <div id="modeOptions" class="mode-options"></div>
+            </div>
+            <!-- 地图选择 -->
+            <div class="select-section">
+                <h3 class="select-section-title">战场地图</h3>
+                <div id="mapOptions" class="map-options"></div>
+            </div>
+            <!-- 选中信息摘要 -->
+            <div id="mapModeSummary" class="map-mode-summary hidden">
+                <div class="summary-row">
+                    <span class="summary-label">模式</span>
+                    <span id="summaryMode" class="summary-value">征服</span>
+                </div>
+                <div class="summary-row">
+                    <span class="summary-label">地图</span>
+                    <span id="summaryMap" class="summary-value">前线突击</span>
+                </div>
+                <div class="summary-row">
+                    <span class="summary-label">说明</span>
+                    <span id="summaryDesc" class="summary-value"></span>
+                </div>
+            </div>
+            <div class="map-mode-buttons">
+                <button id="btnMapModeBack" class="menu-btn">返回</button>
+                <button id="btnMapModeNext" class="menu-btn primary" disabled>下一步</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 兵种选择界面 -->
+    <div id="classSelect" class="hidden">
+        <div class="class-select-content">
+            <h2>选择兵种</h2>
+            <div class="class-cards">
+<div class="class-card" data-class="assault">
+<div class="class-icon">🔫</div>
+<h3>突击兵</h3>
+<p>主武器: M416 突击步枪</p>
+<p>副武器: P226 手枪</p>
+<p>技能: 弹药包 (3键)</p>
+<p>被动: 冲刺耐力增强</p>
+</div>
+<div class="class-card" data-class="medic">
+<div class="class-icon">💉</div>
+<h3>医疗兵</h3>
+<p>主武器: MP5 冲锋枪</p>
+<p>副武器: P226 手枪</p>
+<p>技能: 医疗包 (3键)</p>
+<p>被动: 血量低于50%自动回血</p>
+</div>
+<div class="class-card" data-class="engineer">
+<div class="class-icon">🔧</div>
+<h3>工程兵</h3>
+<p>主武器: M870 霰弹枪</p>
+<p>副武器: RPG-7 火箭筒</p>
+<p>技能: 维修工具 (3键)</p>
+<p>建造: 三类战地工事 (4键)</p>
+<p>被动: 对载具伤害加成</p>
+</div>
+<div class="class-card" data-class="sniper">
+<div class="class-icon">🎯</div>
+<h3>狙击手</h3>
+<p>主武器: L96 狙击步枪</p>
+<p>副武器: MP443 手枪</p>
+<p>技能: 运动传感器 (3键)</p>
+<p>被动: 屏息稳定</p>
+</div>
+            </div>
+            <div id="weaponSelect" class="weapon-select hidden">
+                <div class="weapon-select-header">
+                    <span>主武器</span>
+                    <span class="secondary-weapon">副武器: <strong id="secondaryWeaponText">P226</strong></span>
+                </div>
+                <div id="primaryWeaponOptions" class="weapon-options"></div>
+            </div>
+            <button id="btnDeploy" class="menu-btn primary" disabled>部署</button>
+            <button id="btnBackToMenu" class="menu-btn">返回</button>
+        </div>
+    </div>
+
+    <!-- 设置界面 -->
+    <div id="settingsMenu" class="hidden">
+        <div class="settings-content">
+            <h2>设置</h2>
+            <div class="setting-row">
+                <label>鼠标灵敏度</label>
+                <input type="range" id="sensitivity" min="0.5" max="5" step="0.1" value="2">
+                <span id="sensitivityValue">2.0</span>
+            </div>
+            <div class="setting-row">
+                <label>音效音量</label>
+                <input type="range" id="volume" min="0" max="1" step="0.05" value="0.5">
+                <span id="volumeValue">50%</span>
+            </div>
+            <div class="setting-row">
+                <label>显示帧率</label>
+                <input type="checkbox" id="showFPS" checked>
+            </div>
+            <div class="setting-row">
+                <label>视野范围 (FOV)</label>
+                <input type="range" id="fov" min="60" max="110" step="5" value="75">
+                <span id="fovValue">75</span>
+            </div>
+            <button id="btnSettingsBack" class="menu-btn primary">返回</button>
+        </div>
+    </div>
+
+    <!-- 操作说明 -->
+    <div id="helpMenu" class="hidden">
+        <div class="help-content">
+            <h2>操作说明</h2>
+            <div class="help-grid">
+                <div class="help-item"><kbd>W A S D</kbd><span>移动</span></div>
+                <div class="help-item"><kbd>Shift</kbd><span>冲刺 / 瞄准屏息</span></div>
+                <div class="help-item"><kbd>Ctrl</kbd><span>蹲下</span></div>
+                <div class="help-item"><kbd>Z</kbd><span>趴下</span></div>
+                <div class="help-item"><kbd>Space</kbd><span>跳跃 / 翻越 / 攀爬</span></div>
+                <div class="help-item"><kbd>Q / E</kbd><span>侧身倾斜</span></div>
+                <div class="help-item"><kbd>E</kbd><span>拖拽倒地队友（靠近时）</span></div>
+                <div class="help-item"><kbd>鼠标左键</kbd><span>射击</span></div>
+                <div class="help-item"><kbd>鼠标右键</kbd><span>瞄准镜</span></div>
+                <div class="help-item"><kbd>R</kbd><span>换弹</span></div>
+                <div class="help-item"><kbd>X</kbd><span>切换火力模式</span></div>
+                <div class="help-item"><kbd>1 2</kbd><span>切换武器</span></div>
+<div class="help-item"><kbd>3</kbd><span>兵种技能/装备</span></div>
+<div class="help-item"><kbd>4</kbd><span>建造工事（工程兵）</span></div>
+<div class="help-item"><kbd>1 2 3</kbd><span>选择工事类型（建造模式中）</span></div>
+<div class="help-item"><kbd>滚轮</kbd><span>旋转工事方向（建造模式中）</span></div>
+                <div class="help-item"><kbd>F</kbd><span>互动 / 复活队友 / 进入载具</span></div>
+                <div class="help-item"><kbd>G</kbd><span>投掷手雷</span></div>
+                <div class="help-item"><kbd>T</kbd><span>战术标记</span></div>
+                <div class="help-item"><kbd>V</kbd><span>切换载具视角</span></div>
+                <div class="help-item"><kbd>C</kbd><span>切换载具座位</span></div>
+                <div class="help-item"><kbd>Tab</kbd><span>得分板</span></div>
+                <div class="help-item"><kbd>Esc</kbd><span>暂停菜单</span></div>
+            </div>
+            <button id="btnHelpBack" class="menu-btn primary">返回</button>
+        </div>
+    </div>
+
+    <!-- 暂停菜单 -->
+    <div id="pauseMenu" class="hidden">
+        <div class="pause-content">
+            <h2>已暂停</h2>
+            <button id="btnResume" class="menu-btn primary">继续游戏</button>
+            <button id="btnPauseSettings" class="menu-btn">设置</button>
+            <button id="btnChangeClass" class="menu-btn">更换兵种</button>
+            <button id="btnQuit" class="menu-btn">退出到主菜单</button>
+        </div>
+    </div>
+
+    <!-- 游戏HUD -->
+    <div id="gameHUD" class="hidden">
+        <!-- 准星 -->
+        <div id="crosshair">
+            <div class="crosshair-line top"></div>
+            <div class="crosshair-line bottom"></div>
+            <div class="crosshair-line left"></div>
+            <div class="crosshair-line right"></div>
+            <div class="crosshair-dot"></div>
+        </div>
+
+        <!-- 命中标记 -->
+        <div id="hitMarker" class="hidden">✕</div>
+
+        <!-- 狙击镜遮罩 -->
+        <div id="scopeOverlay" class="hidden">
+            <div class="scope-circle">
+                <div class="scope-crosshair-h"></div>
+                <div class="scope-crosshair-v"></div>
+                <div class="scope-center-dot"></div>
+                <div class="scope-mil-dot m1"></div>
+                <div class="scope-mil-dot m2"></div>
+                <div class="scope-mil-dot m3"></div>
+                <div class="scope-mil-dot m4"></div>
+            </div>
+        </div>
+
+        <!-- 伤害指示器 -->
+        <div id="damageIndicator"></div>
+
+        <!-- 左下：血量和护甲 -->
+        <div id="healthPanel" class="hud-panel">
+            <div class="health-bar-container">
+                <div class="health-bar" id="healthBar"></div>
+                <span id="healthText">100</span>
+            </div>
+            <div class="armor-info">
+                <span id="armorText">护甲: 100</span>
+            </div>
+            <!-- 体力条 -->
+            <div class="stamina-bar-container">
+                <div class="stamina-bar" id="staminaBar"></div>
+            </div>
+        </div>
+
+        <!-- 侧身指示 -->
+        <div id="leanIndicator" class="hidden">
+            <span id="leanDirection"></span>
+        </div>
+
+        <!-- 重生保护指示 -->
+        <div id="spawnProtectionIndicator" class="hidden">
+            <span>保护中</span>
+        </div>
+
+        <!-- 右下：武器和弹药 -->
+        <div id="weaponPanel" class="hud-panel">
+            <div class="weapon-name" id="weaponName">M416</div>
+            <div class="weapon-mode" id="weaponMode">自动</div>
+            <div class="ammo-info">
+                <span class="ammo-current" id="ammoCurrent">30</span>
+                <span class="ammo-separator">/</span>
+                <span class="ammo-reserve" id="ammoReserve">90</span>
+            </div>
+            <div class="weapon-slots" id="weaponSlots"></div>
+            <!-- 兵种技能栏 -->
+            <div id="gadgetPanel" class="gadget-panel hidden">
+                <div class="gadget-icon" id="gadgetIcon">📦</div>
+                <div class="gadget-info">
+                    <div class="gadget-name" id="gadgetName">弹药包</div>
+                    <div class="gadget-cooldown-bar">
+                        <div class="gadget-cooldown-fill" id="gadgetCooldownFill"></div>
+                    </div>
+                </div>
+                <div class="gadget-key">3</div>
+            </div>
+        </div>
+
+        <!-- 顶部：比分和票数 -->
+        <div id="scorePanel" class="hud-panel">
+            <div class="team-score friendly">
+                <span class="team-name">我方</span>
+                <span class="team-points" id="friendlyScore">0</span>
+                <span class="team-tickets" id="friendlyTickets">300</span>
+            </div>
+            <div class="score-center">
+                <div class="score-mode" id="gameModeLabel">征服</div>
+                <div class="score-timer" id="gameTimer">10:00</div>
+            </div>
+            <div class="team-score enemy">
+                <span class="team-name">敌方</span>
+                <span class="team-points" id="enemyScore">0</span>
+                <span class="team-tickets" id="enemyTickets">300</span>
+            </div>
+        </div>
+
+        <!-- 目标点指示 -->
+        <div id="objectiveInfo" class="hud-panel">
+            <span id="objectiveText">占领据点 A</span>
+        </div>
+
+        <!-- 击杀提示 -->
+        <div id="killFeed"></div>
+
+        <!-- 小地图 -->
+        <canvas id="minimap" width="200" height="200"></canvas>
+
+        <!-- 载具信息 -->
+        <div id="vehicleHUD" class="hidden">
+            <div class="vh-top-row">
+                <div id="vehicleName"></div>
+                <div id="vehicleSeat"></div>
+            </div>
+            <div class="vehicle-health-bar">
+                <div class="vehicle-health" id="vehicleHealth"></div>
+                <div class="vehicle-health-segments" id="vehicleHealthSegments"></div>
+            </div>
+            <div class="vh-bottom-row">
+                <div class="vh-speedo">
+                    <span class="vh-label">速度</span>
+                    <span id="vehicleSpeed">0</span>
+                    <span class="vh-unit">km/h</span>
+                </div>
+                <div class="vh-altitude hidden" id="vehicleAltBox">
+                    <span class="vh-label">高度</span>
+                    <span id="vehicleAltitude">0</span>
+                    <span class="vh-unit">m</span>
+                </div>
+                <div class="vh-weapon hidden" id="vehicleWeaponBox">
+                    <span class="vh-label">武器</span>
+                    <div class="vh-cooldown-bar">
+                        <div class="vh-cooldown" id="vehicleCooldown"></div>
+                    </div>
+                    <div class="vh-ammo" id="vehicleAmmo"></div>
+                </div>
+            </div>
+            <div class="vh-status-row" id="vehicleStatusRow">
+                <div class="vh-status-item hidden" id="vehicleDriftStatus">
+                    <span class="vh-status-icon">⚠</span>漂移
+                </div>
+                <div class="vh-status-item hidden" id="vehicleDamageStatus">
+                    <span class="vh-status-icon">🔥</span>受损
+                </div>
+                <div class="vh-status-item hidden" id="vehicleCriticalStatus">
+                    <span class="vh-status-icon">☠</span>危险
+                </div>
+            </div>
+        </div>
+
+        <!-- 载具炮塔方向指示器 -->
+        <div id="vehicleTurretIndicator" class="hidden">
+            <div class="vti-compass">
+                <div class="vti-turret-arrow" id="vtiTurretArrow"></div>
+                <div class="vti-hull-arrow"></div>
+            </div>
+        </div>
+
+        <!-- 载具准星 -->
+        <div id="vehicleCrosshair" class="hidden">
+            <div class="vc-dot"></div>
+            <div class="vc-ring"></div>
+            <div class="vc-bracket vc-tl"></div>
+            <div class="vc-bracket vc-tr"></div>
+            <div class="vc-bracket vc-bl"></div>
+            <div class="vc-bracket vc-br"></div>
+        </div>
+
+        <!-- 互动提示 -->
+        <div id="interactionPrompt" class="hidden">
+            <span>按 <kbd>F</kbd> </span><span id="interactionText">进入载具</span>
+        </div>
+
+        <!-- 工事建造面板 -->
+        <div id="fortificationPanel" class="fortification-panel hidden">
+            <div class="fortification-header">
+                <span class="fortification-title" id="fortificationTitle">建造工事</span>
+                <span class="fortification-count" id="fortificationCount">0/5</span>
+            </div>
+            <div class="fortification-options">
+                <div class="fortification-option selected" id="fortificationOptionSandbag"><span class="fo-key">1</span>沙袋墙</div>
+                <div class="fortification-option" id="fortificationOptionWire"><span class="fo-key">2</span>铁丝网</div>
+                <div class="fortification-option" id="fortificationOptionHedgehog"><span class="fo-key">3</span>反坦克桩</div>
+            </div>
+            <div class="fortification-status" id="fortificationStatus">就绪</div>
+            <div class="fortification-hint" id="fortificationHint">按 4 进入建造模式</div>
+        </div>
+
+        <!-- 换弹提示 -->
+        <div id="reloadIndicator" class="hidden">换弹中...</div>
+
+        <!-- 死亡画面 -->
+        <div id="deathScreen" class="hidden">
+            <div class="death-content">
+                <h2>你被击杀了</h2>
+                <p id="killerName"></p>
+                <p id="respawnTimer">5秒后重生</p>
+            </div>
+        </div>
+
+        <!-- 部署/重生界面 -->
+        <div id="deployScreen" class="hidden">
+            <div class="deploy-content">
+                <h2>选择部署点</h2>
+                <div class="deploy-timer">
+                    <span id="deployTimer">5</span> 秒后自动部署
+                </div>
+                <div class="deploy-points" id="deployPoints">
+                    <!-- 动态生成 -->
+                </div>
+                <div class="deploy-info">
+                    <div class="deploy-squad">
+                        <h4>小队成员（点击存活队友可部署）</h4>
+                        <div id="deploySquadList"></div>
+                    </div>
+                </div>
+                <button id="btnDeployNow" class="menu-btn primary" disabled>立即部署</button>
+            </div>
+        </div>
+
+        <!-- FPS显示 -->
+        <div id="fpsCounter"></div>
+
+        <!-- 罗盘条 -->
+        <div id="compassBar" class="hidden">
+            <div class="compass-strip" id="compassStrip"></div>
+            <div class="compass-center-marker"></div>
+        </div>
+
+        <!-- 3D世界标记容器 -->
+        <div id="worldMarkers"></div>
+
+        <!-- 连杀提示 -->
+        <div id="killstreakPopup" class="hidden"></div>
+
+        <!-- 得分板 -->
+        <div id="scoreboard" class="hidden">
+            <div class="scoreboard-content">
+                <h2>得分板</h2>
+                <div class="scoreboard-teams">
+                    <div class="sb-team">
+                        <h3>我方</h3>
+                        <div id="sbFriendly"></div>
+                    </div>
+                    <div class="sb-team">
+                        <h3>敌方</h3>
+                        <div id="sbEnemy"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 通知消息 -->
+        <div id="notification"></div>
+
+        <!-- 压制效果遮罩 -->
+        <div id="suppressionOverlay"></div>
+
+        <!-- 低血量暗角 -->
+        <div id="lowHealthVignette"></div>
+
+        <!-- 倒地状态覆盖层（区别于死亡，等待队友救援） -->
+        <div id="downedOverlay" class="hidden">
+            <div class="downed-content">
+                <h2 id="downedTitle">你已倒地</h2>
+                <p class="downed-subtitle">等待队友救援</p>
+                <div class="downed-bleed">
+                    <div class="bleed-label">流血倒计时 <span id="bleedOutText">30s</span></div>
+                    <div class="bleed-bar-bg">
+                        <div class="bleed-bar-fill" id="bleedOutBar"></div>
+                    </div>
+                </div>
+                <div class="downed-skip">
+                    <div class="skip-hint" id="skipHint">长按 <kbd>空格</kbd> 跳过等待</div>
+                    <div class="skip-bar-bg">
+                        <div class="skip-bar-fill" id="skipProgressBar"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 浮动伤害数字容器 -->
+        <div id="damageNumbers"></div>
+
+        <!-- 载具控制提示 -->
+        <div id="vehicleControls" class="hidden">
+            <div class="vc-item"><kbd>W</kbd>加速 <kbd>S</kbd>刹车/倒退</div>
+            <div class="vc-item"><kbd>A</kbd><kbd>D</kbd>转向</div>
+            <div class="vc-item"><kbd>Space</kbd>手刹 / 直升机上升</div>
+            <div class="vc-item"><kbd>Shift</kbd>直升机下降</div>
+            <div class="vc-item"><kbd>鼠标</kbd>炮塔/瞄准</div>
+            <div class="vc-item"><kbd>左键</kbd>射击 <kbd>右键</kbd>瞄准</div>
+            <div class="vc-item"><kbd>V</kbd>切换视角 <kbd>C</kbd>切换座位</div>
+            <div class="vc-item"><kbd>F</kbd>离开载具</div>
+            <div class="vc-item vc-hint-toggle">按住 <kbd>H</kbd> 查看操作</div>
+        </div>
+    </div>
+
+    <!-- 游戏结束 -->
+    <div id="gameOverScreen" class="hidden">
+        <div class="gameover-content">
+            <h1 id="gameOverTitle">胜利！</h1>
+            <div id="gameOverStats"></div>
+            <button id="btnGameOverMenu" class="menu-btn primary">返回主菜单</button>
+        </div>
+    </div>
+
+    <!-- 移动端触控 UI -->
+    <div id="mobileControls" class="hidden">
+        <!-- 虚拟摇杆 -->
+        <div id="joystickArea">
+            <div id="joystickBase">
+                <div id="joystickThumb"></div>
+            </div>
+        </div>
+        <!-- 右侧动作按钮 -->
+        <div id="mobileButtons">
+            <button id="mbtnShoot" class="mobile-btn shoot-btn">射击</button>
+            <button id="mbtnADS" class="mobile-btn ads-btn">瞄准</button>
+            <button id="mbtnReload" class="mobile-btn">R</button>
+            <button id="mbtnGrenade" class="mobile-btn">G</button>
+            <button id="mbtnInteract" class="mobile-btn">F</button>
+            <button id="mbtnJump" class="mobile-btn">跳</button>
+            <button id="mbtnCrouch" class="mobile-btn">蹲</button>
+        </div>
+        <!-- 左上/右上快捷按钮 -->
+        <div id="mobileTopButtons">
+            <button id="mbtnScoreboard" class="mobile-btn top-btn">Tab</button>
+            <button id="mbtnPause" class="mobile-btn top-btn">⏸</button>
+        </div>
+        <!-- 切换武器按钮 -->
+        <div id="mobileWeaponSwitch">
+            <button id="mbtnWeapon1" class="mobile-btn weapon-btn active">1</button>
+            <button id="mbtnWeapon2" class="mobile-btn weapon-btn">2</button>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js?v=20260801.2"></script>
+</body>
+</html>
