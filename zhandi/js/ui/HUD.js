@@ -20,7 +20,7 @@ export class HUD {
             'staminaBar',
             'leanIndicator', 'leanDirection',
             'spawnProtectionIndicator',
-            'weaponName', 'weaponMode', 'ammoCurrent', 'ammoReserve', 'weaponSlots',
+            'weaponPanel', 'weaponName', 'weaponMode', 'ammoCurrent', 'ammoReserve', 'weaponSlots',
             'friendlyScore', 'enemyScore', 'gameTimer',
             'friendlyTickets', 'enemyTickets',
             'objectiveText', 'killFeed', 'minimap',
@@ -37,14 +37,20 @@ export class HUD {
             'notification', 'vehicleControls', 'gameHUD',
             'suppressionOverlay', 'lowHealthVignette', 'damageNumbers',
             'gadgetPanel', 'gadgetIcon', 'gadgetName', 'gadgetCooldownFill',
+            'specialPanel', 'specialIcon', 'specialName', 'specialCooldownFill',
             'fortificationPanel', 'fortificationTitle', 'fortificationStatus', 'fortificationHint',
             'fortificationOptionSandbag', 'fortificationOptionWire', 'fortificationOptionHedgehog',
             // 新增元素
             'deployScreen', 'deployTimer', 'deployPoints', 'deploySquadList', 'btnDeployNow',
+            'mortarMap', 'mortarMapCanvas', 'mortarAmmo', 'mortarTargetLabel',
             'compassBar', 'compassStrip', 'worldMarkers', 'killstreakPopup',
+            'killConfirm', 'kcLabel', 'kcKiller', 'kcWeapon', 'kcVictim', 'kcScore', 'kcTags',
             // 倒地状态 UI
             'downedOverlay', 'downedTitle', 'bleedOutBar', 'bleedOutText',
             'skipProgressBar', 'skipHint',
+            // 小队
+            'squadPanel', 'squadList',
+            'objectiveText', 'gameModeLabel',
         ];
         for (const id of ids) {
             this.elements[id] = document.getElementById(id);
@@ -288,41 +294,54 @@ export class HUD {
     // 更新武器信息
     updateWeapon(weaponState) {
         if (!weaponState) return;
-        this.elements.weaponName.textContent = weaponState.name;
+        const cache = this._weaponHudCache || (this._weaponHudCache = {});
+        if (cache.name !== weaponState.name) {
+            cache.name = weaponState.name;
+            this.elements.weaponName.textContent = weaponState.name;
+        }
         if (this.elements.weaponMode) {
             let modeText = weaponState.fireModeLabel || weaponState.fireMode || '';
             if (weaponState.isBraced) modeText += ' 架枪';
             else if (weaponState.isHoldingBreath) modeText += ' 屏息';
-            this.elements.weaponMode.textContent = modeText;
-            this.elements.weaponMode.classList.toggle('hidden', !weaponState.fireModeLabel && !weaponState.fireMode);
-            this.elements.weaponMode.classList.toggle('armed', !!weaponState.hasFireModeToggle);
-            this.elements.weaponMode.classList.toggle('braced', !!weaponState.isBraced);
+            const modeKey = `${modeText}|${!!weaponState.hasFireModeToggle}|${!!weaponState.isBraced}`;
+            if (cache.modeKey !== modeKey) {
+                cache.modeKey = modeKey;
+                this.elements.weaponMode.textContent = modeText;
+                this.elements.weaponMode.classList.toggle('hidden', !weaponState.fireModeLabel && !weaponState.fireMode);
+                this.elements.weaponMode.classList.toggle('armed', !!weaponState.hasFireModeToggle);
+                this.elements.weaponMode.classList.toggle('braced', !!weaponState.isBraced);
+            }
         }
-        this.elements.ammoCurrent.textContent = weaponState.ammoInMag;
-        this.elements.ammoReserve.textContent = weaponState.reserveAmmo;
-
-        // 换弹状态
-        if (weaponState.isReloading) {
-            this.elements.reloadIndicator.classList.remove('hidden');
-            document.querySelector('.ammo-info').classList.add('reloading');
-        } else {
-            this.elements.reloadIndicator.classList.add('hidden');
-            document.querySelector('.ammo-info').classList.remove('reloading');
+        if (cache.ammo !== weaponState.ammoInMag) {
+            cache.ammo = weaponState.ammoInMag;
+            this.elements.ammoCurrent.textContent = weaponState.ammoInMag;
         }
-
-        // 武器栏
-        this.elements.weaponSlots.innerHTML = '';
-        for (let i = 0; i < weaponState.weaponList.length; i++) {
-            const slot = document.createElement('div');
-            slot.className = 'weapon-slot' + (i === weaponState.currentIdx ? ' active' : '');
-            slot.textContent = `${i + 1} ${weaponState.weaponList[i]}`;
-            this.elements.weaponSlots.appendChild(slot);
+        if (cache.reserve !== weaponState.reserveAmmo) {
+            cache.reserve = weaponState.reserveAmmo;
+            this.elements.ammoReserve.textContent = weaponState.reserveAmmo;
         }
 
-        if (weaponState.isHoldingBreath) {
-            this.elements.weaponName.classList.add('breath-hold');
-        } else {
-            this.elements.weaponName.classList.remove('breath-hold');
+        if (cache.reloading !== weaponState.isReloading) {
+            cache.reloading = weaponState.isReloading;
+            this.elements.reloadIndicator.classList.toggle('hidden', !weaponState.isReloading);
+            document.querySelector('.ammo-info')?.classList.toggle('reloading', !!weaponState.isReloading);
+        }
+
+        const listKey = `${weaponState.currentIdx}|${weaponState.weaponList.join('|')}`;
+        if (cache.listKey !== listKey) {
+            cache.listKey = listKey;
+            this.elements.weaponSlots.innerHTML = '';
+            for (let i = 0; i < weaponState.weaponList.length; i++) {
+                const slot = document.createElement('div');
+                slot.className = 'weapon-slot' + (i === weaponState.currentIdx ? ' active' : '');
+                slot.textContent = `${i + 1} ${weaponState.weaponList[i]}`;
+                this.elements.weaponSlots.appendChild(slot);
+            }
+        }
+
+        if (cache.holdingBreath !== weaponState.isHoldingBreath) {
+            cache.holdingBreath = weaponState.isHoldingBreath;
+            this.elements.weaponName.classList.toggle('breath-hold', !!weaponState.isHoldingBreath);
         }
     }
 
@@ -382,42 +401,70 @@ export class HUD {
         this.updateFortification(null);
     }
 
+    // 更新特殊装备栏
+    updateSpecial(name, cooldown = 0, maxCooldown = 1) {
+        const panel = this.elements.specialPanel;
+        if (!panel) return;
+        const cache = this._specialHudCache || (this._specialHudCache = {});
+        if (!name) {
+            if (cache.name !== '') panel.classList.add('hidden');
+            cache.name = '';
+            return;
+        }
+        if (cache.name !== name) {
+            cache.name = name;
+            panel.classList.remove('hidden');
+            const icons = { '刺雷': '刺', '反坦克地雷': '雷', '迫击炮': '迫', '沙袋掩体': '垒' };
+            if (this.elements.specialIcon) this.elements.specialIcon.textContent = icons[name] || '特';
+            if (this.elements.specialName) this.elements.specialName.textContent = name;
+        }
+        const pct = maxCooldown > 0 ? Math.max(0, Math.min(100, (1 - cooldown / maxCooldown) * 100)) : 100;
+        const roundedPct = Math.round(pct);
+        if (cache.pct !== roundedPct) {
+            cache.pct = roundedPct;
+            if (this.elements.specialCooldownFill) this.elements.specialCooldownFill.style.width = `${roundedPct}%`;
+        }
+        const cooling = cooldown > 0;
+        if (cache.cooling !== cooling) {
+            cache.cooling = cooling;
+            panel.classList.toggle('cooling', cooling);
+            panel.classList.toggle('ready', !cooling);
+        }
+    }
+
     // 更新兵种技能栏
     updateGadget(gadgetName, gadgetColor, cooldown, maxCooldown) {
         const panel = this.elements.gadgetPanel;
         if (!panel) return;
+        const cache = this._gadgetHudCache || (this._gadgetHudCache = {});
 
         if (!gadgetName) {
-            panel.classList.add('hidden');
+            if (cache.name !== '') panel.classList.add('hidden');
+            cache.name = '';
             return;
         }
-        panel.classList.remove('hidden');
+        if (cache.name !== gadgetName) {
+            cache.name = gadgetName;
+            panel.classList.remove('hidden');
+            const icon = gadgetName.includes('弹药') ? '弹' :
+                         gadgetName.includes('医疗') ? '医' :
+                         gadgetName.includes('维修') ? '修' :
+                         gadgetName.includes('传感') ? '侦' : '技';
+            this.elements.gadgetIcon.textContent = icon;
+            this.elements.gadgetName.textContent = gadgetName;
+        }
 
-        // 图标和名称
-        const icons = {
-            'ammobag': '📦',
-            'medbag': '💊',
-            'repairtool': '🔧',
-            'sensor': '📡',
-        };
-        const gadgetKey = gadgetName.includes('弹药') ? 'ammobag' :
-                         gadgetName.includes('医疗') ? 'medbag' :
-                         gadgetName.includes('维修') ? 'repairtool' :
-                         gadgetName.includes('传感') ? 'sensor' : 'ammobag';
-        this.elements.gadgetIcon.textContent = icons[gadgetKey] || '📦';
-        this.elements.gadgetName.textContent = gadgetName;
-
-        // 冷却进度
-        const fill = this.elements.gadgetCooldownFill;
-        if (cooldown > 0 && maxCooldown > 0) {
-            const pct = (1 - cooldown / maxCooldown) * 100;
-            fill.style.width = `${pct}%`;
-            panel.classList.add('cooling');
-            panel.classList.remove('ready');
-        } else {
-            fill.style.width = '100%';
-            panel.classList.remove('cooling');
-            panel.classList.add('ready');
+        const pct = maxCooldown > 0 ? Math.max(0, Math.min(100, (1 - cooldown / maxCooldown) * 100)) : 100;
+        const roundedPct = Math.round(pct);
+        if (cache.pct !== roundedPct) {
+            cache.pct = roundedPct;
+            this.elements.gadgetCooldownFill.style.width = `${roundedPct}%`;
+        }
+        const cooling = cooldown > 0;
+        if (cache.cooling !== cooling) {
+            cache.cooling = cooling;
+            panel.classList.toggle('cooling', cooling);
+            panel.classList.toggle('ready', !cooling);
         }
     }
 
@@ -435,32 +482,394 @@ export class HUD {
         this.elements.objectiveText.textContent = text;
     }
 
-    // 添加击杀消息
-    addKillMessage(killer, victim, weapon, isPlayerKill = false, isPlayerDeath = false) {
+    // 添加击杀消息（战地风格 kill feed）
+    // options: isPlayerKill, isPlayerDeath, isHeadshot, isDown, isSuicide,
+    //          killerTeam (0/1), victimTeam (0/1), showConfirm, scoreText
+    addKillMessage(killer, victim, weapon, options = {}) {
+        // 兼容旧调用：第4/5参是布尔值
+        if (typeof options === 'boolean') {
+            options = {
+                isPlayerKill: options,
+                isPlayerDeath: arguments[4] === true,
+            };
+        }
+
+        const {
+            isPlayerKill = false,
+            isPlayerDeath = false,
+            isHeadshot = false,
+            isDown = false,
+            isSuicide = false,
+            killerTeam = null,
+            victimTeam = null,
+            showConfirm = false,
+            scoreText = '',
+        } = options;
+
         const feed = this.elements.killFeed;
+        if (!feed) return;
+
         const msg = document.createElement('div');
         msg.className = 'kill-msg';
+        if (isPlayerKill) msg.classList.add('player-kill');
+        if (isPlayerDeath) msg.classList.add('player-death');
+        if (isDown) msg.classList.add('is-down');
+        if (isHeadshot) msg.classList.add('is-headshot');
 
         const killerEl = document.createElement('span');
         killerEl.className = 'killer';
-        killerEl.textContent = killer;
-        if (isPlayerKill) killerEl.style.fontWeight = 'bold';
+        if (killerTeam === 0) killerEl.classList.add('team-friendly');
+        else if (killerTeam === 1) killerEl.classList.add('team-enemy');
+        if (isPlayerKill) killerEl.classList.add('is-self');
+        killerEl.textContent = killer || '???';
 
         const weaponEl = document.createElement('span');
         weaponEl.className = 'weapon';
-        weaponEl.textContent = `[${weapon}]`;
+        const weaponName = document.createElement('span');
+        weaponName.className = 'weapon-name';
+        weaponName.textContent = weapon || '武器';
+        weaponEl.appendChild(weaponName);
+        if (isHeadshot) {
+            const hs = document.createElement('span');
+            hs.className = 'kill-tag headshot';
+            hs.textContent = '爆头';
+            hs.title = '爆头';
+            weaponEl.appendChild(hs);
+        }
+        if (isDown) {
+            const dn = document.createElement('span');
+            dn.className = 'kill-tag down';
+            dn.textContent = '击倒';
+            weaponEl.appendChild(dn);
+        }
 
         const victimEl = document.createElement('span');
         victimEl.className = 'victim';
-        victimEl.textContent = victim;
-        if (isPlayerDeath) victimEl.style.fontWeight = 'bold';
+        if (victimTeam === 0) victimEl.classList.add('team-friendly');
+        else if (victimTeam === 1) victimEl.classList.add('team-enemy');
+        if (isPlayerDeath) victimEl.classList.add('is-self');
+        victimEl.textContent = victim || '???';
 
-        msg.appendChild(killerEl);
-        msg.appendChild(weaponEl);
-        msg.appendChild(victimEl);
-        feed.appendChild(msg);
+        if (isSuicide) {
+            msg.appendChild(victimEl);
+            const suicideEl = document.createElement('span');
+            suicideEl.className = 'weapon';
+            suicideEl.innerHTML = '<span class="weapon-name">自杀</span>';
+            msg.appendChild(suicideEl);
+        } else {
+            msg.appendChild(killerEl);
+            msg.appendChild(weaponEl);
+            msg.appendChild(victimEl);
+        }
 
-        setTimeout(() => msg.remove(), 5000);
+        // 新消息插到顶部（最新在上），旧消息向下滚出
+        feed.insertBefore(msg, feed.firstChild);
+
+        // 限制条数：超出则淡出最旧的
+        const MAX_FEED = 7;
+        while (feed.children.length > MAX_FEED) {
+            const oldest = feed.lastElementChild;
+            if (!oldest) break;
+            this._fadeRemoveKillMsg(oldest);
+        }
+
+        // 记录并定时淡出
+        this.killFeedMessages.push(msg);
+        const life = isPlayerKill || isPlayerDeath ? 6500 : 5200;
+        clearTimeout(msg._fadeTimer);
+        msg._fadeTimer = setTimeout(() => this._fadeRemoveKillMsg(msg), life);
+
+        // 玩家相关击杀/击倒弹出中央确认条
+        if (showConfirm || isPlayerKill) {
+            this.showKillConfirm({
+                killer: killer || '你',
+                victim: victim || '敌人',
+                weapon: weapon || '武器',
+                isHeadshot,
+                isDown,
+                isPlayerDeath,
+                scoreText,
+            });
+        }
+    }
+
+    _fadeRemoveKillMsg(msg) {
+        if (!msg || msg._removing) return;
+        msg._removing = true;
+        clearTimeout(msg._fadeTimer);
+        msg.classList.add('removing');
+        setTimeout(() => {
+            if (msg.parentNode) msg.remove();
+            const idx = this.killFeedMessages.indexOf(msg);
+            if (idx >= 0) this.killFeedMessages.splice(idx, 1);
+        }, 320);
+    }
+
+    clearKillFeed() {
+        const feed = this.elements.killFeed;
+        if (feed) feed.innerHTML = '';
+        this.killFeedMessages = [];
+    }
+
+    // 战地风格个人击杀确认条：你 · 武器 · 击倒/击杀 · 敌人
+    showKillConfirm({
+        killer = '你',
+        victim = '敌人',
+        weapon = '武器',
+        isHeadshot = false,
+        isDown = false,
+        isPlayerDeath = false,
+        scoreText = '',
+    } = {}) {
+        const root = this.elements.killConfirm;
+        if (!root) return;
+
+        const label = this.elements.kcLabel;
+        const killerEl = this.elements.kcKiller;
+        const weaponEl = this.elements.kcWeapon;
+        const victimEl = this.elements.kcVictim;
+        const scoreEl = this.elements.kcScore;
+        const tagsEl = this.elements.kcTags;
+
+        if (isPlayerDeath) {
+            if (label) label.textContent = '被击杀';
+        } else if (isDown) {
+            if (label) label.textContent = '击倒';
+        } else {
+            if (label) label.textContent = isHeadshot ? '爆头击杀' : '击杀';
+        }
+
+        if (killerEl) killerEl.textContent = killer;
+        if (weaponEl) weaponEl.textContent = weapon;
+        if (victimEl) victimEl.textContent = victim;
+
+        if (tagsEl) {
+            tagsEl.innerHTML = '';
+            if (isHeadshot) {
+                const t = document.createElement('span');
+                t.className = 'kc-tag headshot';
+                t.textContent = 'HEADSHOT';
+                tagsEl.appendChild(t);
+            }
+            if (isDown) {
+                const t = document.createElement('span');
+                t.className = 'kc-tag down';
+                t.textContent = 'DOWNED';
+                tagsEl.appendChild(t);
+            }
+        }
+
+        if (scoreEl) {
+            if (scoreText) {
+                scoreEl.textContent = scoreText;
+                scoreEl.classList.remove('hidden');
+            } else {
+                scoreEl.textContent = '';
+                scoreEl.classList.add('hidden');
+            }
+        }
+
+        root.classList.remove('hidden', 'death', 'down', 'headshot');
+        if (isPlayerDeath) root.classList.add('death');
+        if (isDown) root.classList.add('down');
+        if (isHeadshot) root.classList.add('headshot');
+
+        // 重启入场动画
+        root.style.animation = 'none';
+        void root.offsetWidth;
+        root.style.animation = '';
+
+        clearTimeout(this._killConfirmTimer);
+        this._killConfirmTimer = setTimeout(() => {
+            root.classList.add('hidden');
+        }, isPlayerDeath ? 3200 : 2600);
+    }
+
+    hideKillConfirm() {
+        if (this.elements.killConfirm) {
+            this.elements.killConfirm.classList.add('hidden');
+        }
+        clearTimeout(this._killConfirmTimer);
+    }
+
+    // === 迫击炮火力支援地图 ===
+    showMortarMap(ammo) {
+        const el = this.elements.mortarMap;
+        if (!el) return;
+        el.classList.remove('hidden');
+        this.updateMortarAmmo(ammo);
+        this._mortarClickCb = null;
+        this._mortarHover = { px: -1, py: -1 };
+        // 绑定 canvas 点击选点
+        const canvas = this.elements.mortarMapCanvas;
+        if (canvas) {
+            this._mortarCanvasHandler = (ev) => {
+                ev.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const px = ev.clientX - rect.left;
+                const py = ev.clientY - rect.top;
+                if (this._mortarClickCb) this._mortarClickCb(px, py);
+            };
+            this._mortarMoveHandler = (ev) => {
+                const rect = canvas.getBoundingClientRect();
+                this._mortarHover = { px: ev.clientX - rect.left, py: ev.clientY - rect.top };
+                // 立即重绘，让落点预览跟手
+                if (this._mortarRedrawCb) this._mortarRedrawCb();
+            };
+            canvas.addEventListener('click', this._mortarCanvasHandler);
+            canvas.addEventListener('mousemove', this._mortarMoveHandler);
+        }
+    }
+
+    hideMortarMap() {
+        const el = this.elements.mortarMap;
+        if (el) el.classList.add('hidden');
+        const canvas = this.elements.mortarMapCanvas;
+        if (canvas) {
+            if (this._mortarCanvasHandler) {
+                canvas.removeEventListener('click', this._mortarCanvasHandler);
+                this._mortarCanvasHandler = null;
+            }
+            if (this._mortarMoveHandler) {
+                canvas.removeEventListener('mousemove', this._mortarMoveHandler);
+                this._mortarMoveHandler = null;
+            }
+        }
+        this._mortarClickCb = null;
+        this._mortarHover = null;
+    }
+
+    setMortarClickCallback(cb) {
+        this._mortarClickCb = cb;
+    }
+
+    setMortarRedrawCallback(cb) {
+        this._mortarRedrawCb = cb;
+    }
+
+    updateMortarAmmo(ammo) {
+        if (this.elements.mortarAmmo) this.elements.mortarAmmo.textContent = `弹药 ${Math.max(0, Math.floor(ammo))}`;
+    }
+
+    updateMortarTarget(label) {
+        if (this.elements.mortarTargetLabel) this.elements.mortarTargetLabel.textContent = label || '';
+    }
+
+    // 绘制迫击炮选点地图：灰底 + 据点 + 已标记敌人 + 玩家位置
+    drawMortarMap(playerPos, capturePoints, spottedEnemies, worldSize, mortarPos) {
+        const canvas = this.elements.mortarMapCanvas;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const size = canvas.width;
+        const half = worldSize / 2;
+        const scale = size / worldSize;
+        const toCanvas = (x, z) => ({ x: (x + half) * scale, y: (z + half) * scale });
+
+        ctx.clearRect(0, 0, size, size);
+        // 背景 + 网格
+        ctx.fillStyle = '#0c1410';
+        ctx.fillRect(0, 0, size, size);
+        ctx.strokeStyle = 'rgba(100,150,120,0.25)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+            const p = (i / 4) * size;
+            ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, size); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(size, p); ctx.stroke();
+        }
+
+        // 据点
+        for (const cp of capturePoints) {
+            if (!cp) continue;
+            const c = toCanvas(cp.x, cp.z);
+            let color = '#888888';
+            if (cp.team === 0) color = '#00aaff';
+            else if (cp.team === 1) color = '#ff4444';
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.arc(c.x, c.y, 8, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 11px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(cp.name, c.x, c.y);
+        }
+
+        // 已标记敌人（红点）
+        for (const e of spottedEnemies) {
+            if (!e) continue;
+            const c = toCanvas(e.x, e.z);
+            ctx.fillStyle = '#ff4040';
+            ctx.beginPath(); ctx.arc(c.x, c.y, 4, 0, Math.PI * 2); ctx.fill();
+        }
+
+        // 迫击炮位置（黄点）+ 射程环
+        if (mortarPos) {
+            const c = toCanvas(mortarPos.x, mortarPos.z);
+            const radiusPx = (mortarPos.range || 90) * scale;
+            const minPx = (mortarPos.minRange || 8) * scale;
+
+            // 可打击范围：内圈(最小射程) 到 外圈(最大射程) 之间的半透明环
+            if (radiusPx > 1) {
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, radiusPx, 0, Math.PI * 2);
+                ctx.arc(c.x, c.y, minPx, 0, Math.PI * 2, true);
+                ctx.fillStyle = 'rgba(255, 179, 51, 0.10)';
+                ctx.fill();
+            }
+            // 外圈（最大射程）
+            ctx.beginPath(); ctx.arc(c.x, c.y, radiusPx, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255, 179, 51, 0.65)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // 内圈（最小射程）
+            ctx.beginPath(); ctx.arc(c.x, c.y, minPx, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255, 90, 70, 0.5)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            // 炮点
+            ctx.fillStyle = '#ffb333';
+            ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#ffd88a';
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(c.x, c.y, 10, 0, Math.PI * 2); ctx.stroke();
+        }
+
+        // 玩家位置（箭头）
+        if (playerPos) {
+            const c = toCanvas(playerPos.x, playerPos.z);
+            ctx.fillStyle = '#69ff9d';
+            ctx.beginPath(); ctx.arc(c.x, c.y, 5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.85)';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.fillText('你', c.x, c.y - 6);
+        }
+
+        // 悬停落点预览（绿色=可打击，红色=太近/超射程）
+        if (this._mortarHover && mortarPos) {
+            const hx = this._mortarHover.px;
+            const hy = this._mortarHover.py;
+            if (hx >= 0 && hy >= 0 && hx <= size && hy <= size) {
+                const wx = hx / scale - half;
+                const wz = hy / scale - half;
+                const dx = wx - mortarPos.x;
+                const dz = wz - mortarPos.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                const inRange = dist >= (mortarPos.minRange || 8) && dist <= (mortarPos.range || 90);
+                ctx.beginPath(); ctx.arc(hx, hy, 7, 0, Math.PI * 2);
+                ctx.fillStyle = inRange ? 'rgba(105,255,157,0.28)' : 'rgba(255,90,70,0.28)';
+                ctx.fill();
+                ctx.beginPath(); ctx.arc(hx, hy, 7, 0, Math.PI * 2);
+                ctx.strokeStyle = inRange ? '#69ff9d' : '#ff5a46';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                const label = inRange
+                    ? `落点 (${Math.round(wx)}, ${Math.round(wz)}) · 距离 ${Math.round(dist)}m · 点击开炮`
+                    : (dist < (mortarPos.minRange || 8) ? '距离太近（需要 ≥ ' + Math.round(mortarPos.minRange || 8) + 'm）' : '超出射程（≤ ' + Math.round(mortarPos.range || 90) + 'm）');
+                this.updateMortarTarget(label);
+            }
+        }
     }
 
     // 更新小地图
@@ -647,76 +1056,111 @@ export class HUD {
         ctx.restore();
     }
 
+    // 彻底隐藏所有载具相关 UI（下车 / 载具摧毁 / 强制清理）
+    hideVehicleUI() {
+        this._vehicleUiActive = false;
+        if (this.elements.vehicleHUD) this.elements.vehicleHUD.classList.add('hidden');
+        if (this.elements.vehicleControls) {
+            this.elements.vehicleControls.classList.add('hidden');
+            this.elements.vehicleControls.classList.remove('show-hint', 'controls-visible');
+            this.elements.vehicleControls.style.animation = '';
+            this.elements.vehicleControls.style.opacity = '';
+        }
+        if (this.elements.vehicleTurretIndicator) {
+            this.elements.vehicleTurretIndicator.classList.add('hidden');
+        }
+        this.showVehicleCrosshair(false);
+        // 恢复步兵武器/准星面板
+        if (this.elements.weaponPanel) this.elements.weaponPanel.classList.remove('vehicle-hidden');
+        if (this.elements.crosshair) this.elements.crosshair.classList.remove('vehicle-hidden');
+        document.getElementById('gameHUD')?.classList.remove('in-vehicle');
+    }
+
     // 更新载具HUD
     updateVehicle(vehicleState, seat) {
-        if (vehicleState) {
-            this.elements.vehicleHUD.classList.remove('hidden');
-            // 重新显示控制提示时重置淡出动画
+        if (!vehicleState) {
+            this.hideVehicleUI();
+            return;
+        }
+
+        this._vehicleUiActive = true;
+        document.getElementById('gameHUD')?.classList.add('in-vehicle');
+        this.elements.vehicleHUD.classList.remove('hidden');
+
+        // 首次进入：短暂显示控制提示，随后淡出
+        if (this.elements.vehicleControls) {
             if (this.elements.vehicleControls.classList.contains('hidden')) {
                 this.elements.vehicleControls.classList.remove('hidden');
+                this.elements.vehicleControls.classList.add('controls-visible');
                 this.elements.vehicleControls.style.animation = 'none';
-                void this.elements.vehicleControls.offsetWidth; // 触发重排
+                void this.elements.vehicleControls.offsetWidth;
                 this.elements.vehicleControls.style.animation = '';
+                this.elements.vehicleControls.style.opacity = '';
             }
-            const pct = (vehicleState.health / vehicleState.maxHealth) * 100;
-            this.elements.vehicleHealth.style.width = `${pct}%`;
-            this.elements.vehicleName.textContent = vehicleState.name;
-            this.elements.vehicleSeat.textContent = seat === 0 ? '驾驶员' : `乘员 ${seat + 1}`;
+        }
 
-            // 血量颜色
-            this.elements.vehicleHealth.classList.remove('low', 'critical');
-            if (pct < 25) this.elements.vehicleHealth.classList.add('critical');
-            else if (pct < 50) this.elements.vehicleHealth.classList.add('low');
+        const pct = (vehicleState.health / vehicleState.maxHealth) * 100;
+        this.elements.vehicleHealth.style.width = `${pct}%`;
+        this.elements.vehicleName.textContent = vehicleState.name;
+        const seatLabel = seat === 0 ? '驾驶员' : `乘员 ${seat + 1}`;
+        const occ = vehicleState.occupants ?? 0;
+        const maxOcc = vehicleState.maxOccupants ?? 0;
+        this.elements.vehicleSeat.textContent = maxOcc
+            ? `${seatLabel} · ${occ}/${maxOcc}`
+            : seatLabel;
 
-            // 速度
-            this.elements.vehicleSpeed.textContent = Math.round(Math.abs(vehicleState.speed || 0) * 3.6);
+        // 血量颜色
+        this.elements.vehicleHealth.classList.remove('low', 'critical');
+        if (pct < 25) this.elements.vehicleHealth.classList.add('critical');
+        else if (pct < 50) this.elements.vehicleHealth.classList.add('low');
 
-            // 高度（直升机）
-            if (vehicleState.isAircraft) {
-                this.elements.vehicleAltBox.classList.remove('hidden');
-                this.elements.vehicleAltitude.textContent = Math.round(vehicleState.altitude || 0);
-            } else {
-                this.elements.vehicleAltBox.classList.add('hidden');
-            }
+        // 速度
+        this.elements.vehicleSpeed.textContent = Math.round(Math.abs(vehicleState.speed || 0) * 3.6);
 
-            // 武器冷却 + 弹药
-            if (vehicleState.hasWeapon) {
-                this.elements.vehicleWeaponBox.classList.remove('hidden');
-                const cdPct = vehicleState.cannonCooldown > 0
-                    ? (1 - vehicleState.cannonCooldown / vehicleState.maxCannonCooldown) * 100
-                    : 100;
-                this.elements.vehicleCooldown.style.width = `${cdPct}%`;
-                // 弹药显示（主炮 + 副武器）
-                const ammoEl = this.elements.vehicleAmmo;
-                if (ammoEl) {
-                    let ammoText = '';
-                    if (vehicleState.maxCannonAmmo > 0) {
-                        ammoText += `主炮 ${vehicleState.cannonAmmo}/${vehicleState.maxCannonAmmo}`;
-                    }
-                    if (vehicleState.maxSecondaryAmmo > 0) {
-                        if (ammoText) ammoText += ' · ';
-                        ammoText += `机枪 ${vehicleState.secondaryAmmo}/${vehicleState.maxSecondaryAmmo}`;
-                    }
-                    ammoEl.textContent = ammoText;
-                    // 弹药不足时高亮警告
-                    ammoEl.classList.toggle('low',
-                        (vehicleState.maxCannonAmmo > 0 && vehicleState.cannonAmmo <= vehicleState.maxCannonAmmo * 0.2) ||
-                        (vehicleState.maxSecondaryAmmo > 0 && vehicleState.secondaryAmmo <= vehicleState.maxSecondaryAmmo * 0.2));
-                }
-            } else {
-                this.elements.vehicleWeaponBox.classList.add('hidden');
-            }
-
-            // 载具状态指示
-            this._updateVehicleStatus(vehicleState);
-
-            // 炮塔方向指示器
-            this._updateTurretIndicator(vehicleState);
+        // 高度（飞行器）
+        if (vehicleState.isAircraft) {
+            this.elements.vehicleAltBox.classList.remove('hidden');
+            this.elements.vehicleAltitude.textContent = Math.round(vehicleState.altitude || 0);
         } else {
-            this.elements.vehicleHUD.classList.add('hidden');
-            this.elements.vehicleControls.classList.add('hidden');
-            this.elements.vehicleControls.classList.remove('show-hint');
-            this.elements.vehicleTurretIndicator.classList.add('hidden');
+            this.elements.vehicleAltBox.classList.add('hidden');
+        }
+
+        // 武器冷却 + 弹药
+        if (vehicleState.hasWeapon) {
+            this.elements.vehicleWeaponBox.classList.remove('hidden');
+            const maxCd = vehicleState.maxCannonCooldown || 1;
+            const cdPct = vehicleState.cannonCooldown > 0
+                ? (1 - vehicleState.cannonCooldown / maxCd) * 100
+                : 100;
+            this.elements.vehicleCooldown.style.width = `${Math.max(0, Math.min(100, cdPct))}%`;
+            const ammoEl = this.elements.vehicleAmmo;
+            if (ammoEl) {
+                let ammoText = '';
+                if (vehicleState.maxCannonAmmo > 0) {
+                    ammoText += `主炮 ${vehicleState.cannonAmmo}/${vehicleState.maxCannonAmmo}`;
+                }
+                if (vehicleState.maxSecondaryAmmo > 0) {
+                    if (ammoText) ammoText += ' · ';
+                    ammoText += `机枪 ${vehicleState.secondaryAmmo}/${vehicleState.maxSecondaryAmmo}`;
+                }
+                ammoEl.textContent = ammoText;
+                ammoEl.classList.toggle('low',
+                    (vehicleState.maxCannonAmmo > 0 && vehicleState.cannonAmmo <= vehicleState.maxCannonAmmo * 0.2) ||
+                    (vehicleState.maxSecondaryAmmo > 0 && vehicleState.secondaryAmmo <= vehicleState.maxSecondaryAmmo * 0.2));
+            }
+        } else {
+            this.elements.vehicleWeaponBox.classList.add('hidden');
+        }
+
+        this._updateVehicleStatus(vehicleState);
+        this._updateTurretIndicator(vehicleState);
+
+        // 驾驶员隐藏步兵武器面板；乘员保留个人武器信息
+        if (this.elements.weaponPanel) {
+            this.elements.weaponPanel.classList.toggle('vehicle-hidden', seat === 0);
+        }
+        if (this.elements.crosshair) {
+            this.elements.crosshair.classList.toggle('vehicle-hidden', seat === 0);
         }
     }
 
@@ -757,11 +1201,16 @@ export class HUD {
 
     // 显示/隐藏载具准星
     showVehicleCrosshair(show) {
+        if (!this.elements.vehicleCrosshair) return;
         this.elements.vehicleCrosshair.classList.toggle('hidden', !show);
+        if (!show) {
+            this.elements.vehicleCrosshair.classList.remove('aircraft');
+        }
     }
 
     // 更新载具准星（基于冷却状态变色）
     updateVehicleCrosshair(cooldownReady, mode = 'default') {
+        if (!this.elements.vehicleCrosshair) return;
         this.elements.vehicleCrosshair.classList.toggle('aircraft', mode === 'aircraft');
         const dot = this.elements.vehicleCrosshair.querySelector('.vc-dot');
         const ring = this.elements.vehicleCrosshair.querySelector('.vc-ring');
@@ -805,24 +1254,64 @@ export class HUD {
     }
 
     updateScoreboard(friendlyPlayers, enemyPlayers) {
-        // 性能优化：每0.5秒更新一次计分板，而非每帧
-        // （此方法在 _updateHUD 中被调用，但由外部节流控制）
+        // 战地风格：Name | K | D | A | Score，按得分排序
         const buildTeam = (container, players) => {
+            if (!container) return;
             container.innerHTML = '';
-            players.sort((a, b) => b.kills - a.kills);
-            for (const p of players) {
+            const ranked = players.slice().sort((a, b) => {
+                const sa = (a.kills || 0) * 100 + (a.assists || 0) * 50;
+                const sb = (b.kills || 0) * 100 + (b.assists || 0) * 50;
+                return sb - sa;
+            });
+            for (const p of ranked) {
+                const k = p.kills || 0;
+                const d = p.deaths || 0;
+                const a = p.assists || 0;
+                const score = k * 100 + a * 50;
                 const row = document.createElement('div');
-                row.className = 'sb-player';
+                row.className = 'sb-player' + (p.isPlayer ? ' is-self' : '');
                 row.innerHTML = `
-                    <span class="name">${p.name}</span>
-                    <span>击杀: ${p.kills} / 死亡: ${p.deaths}</span>
-                    <span class="score">${p.kills * 100}</span>
+                    <span class="name">${p.name || '未知'}</span>
+                    <span class="sb-stat">${k}</span>
+                    <span class="sb-stat">${d}</span>
+                    <span class="sb-stat">${a}</span>
+                    <span class="score">${score}</span>
                 `;
                 container.appendChild(row);
             }
         };
         buildTeam(this.elements.sbFriendly, friendlyPlayers);
         buildTeam(this.elements.sbEnemy, enemyPlayers);
+    }
+
+    // 小队面板：显示同队成员血量/状态
+    updateSquad(members = []) {
+        const list = this.elements.squadList;
+        const panel = this.elements.squadPanel;
+        if (!list || !panel) return;
+        list.innerHTML = '';
+        const shown = members.slice(0, 5);
+        if (shown.length === 0) {
+            panel.classList.add('hidden');
+            return;
+        }
+        panel.classList.remove('hidden');
+        for (const m of shown) {
+            const row = document.createElement('div');
+            const hp = Math.max(0, Math.min(100, m.health ?? (m.alive ? 100 : 0)));
+            row.className = 'squad-member' + (m.isSelf ? ' is-self' : '') + (!m.alive ? ' dead' : (m.downed ? ' downed' : ''));
+            row.innerHTML = `
+                <span class="sq-class">${(m.classType || 'assault').slice(0, 2).toUpperCase()}</span>
+                <span class="sq-name">${m.name || '队友'}</span>
+                <span class="sq-hp-bar"><i style="width:${m.alive || m.downed ? hp : 0}%"></i></span>
+            `;
+            list.appendChild(row);
+        }
+    }
+
+    // 模式动态目标文案（抢攻 fuse 等）
+    setObjectiveText(text) {
+        if (this.elements.objectiveText) this.elements.objectiveText.textContent = text;
     }
 
     // 通知
@@ -863,10 +1352,11 @@ export class HUD {
     }
 
     // ============ 部署/重生界面 ============
-    showDeployScreen(capturePoints, squadMembers, respawnTime, onSelectPoint) {
+    showDeployScreen(capturePoints, squadMembers, respawnTime, onSelectPoint, onSpectate) {
         this.elements.deployScreen.classList.remove('hidden');
         this.elements.deathScreen.classList.add('hidden');
         this._deployOnSelect = onSelectPoint;
+        this._deployOnSpectate = onSpectate || null;
         this._selectedDeployPoint = null;
         this._deployTimer = respawnTime;
 
@@ -891,37 +1381,49 @@ export class HUD {
                 <div class="dp-name">${cp.label || ('据点 ' + cp.name)}</div>
                 <div class="dp-status ${statusClass}">${statusText}</div>
             `;
-            card.addEventListener('click', () => {
+            card.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
                 this.elements.deployPoints.querySelectorAll('.deploy-point-card').forEach(c => c.classList.remove('selected'));
                 this.elements.deploySquadList.querySelectorAll('.deploy-squad-member').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
                 this._selectedDeployPoint = cp;
                 this._selectedSquadMember = null;
-                this.elements.btnDeployNow.disabled = false;
+                // 倒计时未结束时按钮仍灰，但已记录选择；结束后可点
+                if (this.elements.btnDeployNow) {
+                    this.elements.btnDeployNow.disabled = (this._deployTimer || 0) > 0.05;
+                }
             });
             this.elements.deployPoints.appendChild(card);
         }
 
-        // 小队成员列表
+        // 小队成员列表（点击玩家名称可观战，确认是否复活在其旁）
         this.elements.deploySquadList.innerHTML = '';
         if (squadMembers && squadMembers.length > 0) {
             for (const m of squadMembers) {
                 const row = document.createElement('div');
                 row.className = 'deploy-squad-member';
+                row.style.cursor = 'pointer';
                 if (m.alive) {
-                    row.style.cursor = 'pointer';
-                    row.addEventListener('click', () => {
+                    row.addEventListener('click', (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
                         this.elements.deploySquadList.querySelectorAll('.deploy-squad-member').forEach(c => c.classList.remove('selected'));
                         this.elements.deployPoints.querySelectorAll('.deploy-point-card').forEach(c => c.classList.remove('selected'));
                         row.classList.add('selected');
                         this._selectedDeployPoint = null;
                         this._selectedSquadMember = m;
-                        this.elements.btnDeployNow.disabled = false;
+                        // 观战该成员
+                        if (this._deployOnSpectate) this._deployOnSpectate(m);
+                        if (this.elements.btnDeployNow) {
+                            this.elements.btnDeployNow.disabled = (this._deployTimer || 0) > 0.05;
+                        }
                     });
                 }
                 row.innerHTML = `
                     <div class="dsm-status ${m.alive ? 'alive' : 'dead'}"></div>
                     <span>${m.name}</span>
+                    <span class="dsm-action">${m.alive ? (this._spectatingName === m.name ? '观战中…' : '观战') : ''}</span>
                     <span style="margin-left:auto;color:#888;font-size:11px">${m.alive ? '存活' : '阵亡'}</span>
                 `;
                 this.elements.deploySquadList.appendChild(row);
@@ -935,8 +1437,36 @@ export class HUD {
         this._updateDeployTimer(respawnTime);
     }
 
+    setSpectatingName(name) {
+        this._spectatingName = name || null;
+        // 刷新成员列表观战标记
+        const rows = this.elements.deploySquadList?.querySelectorAll('.deploy-squad-member');
+        if (rows) {
+            for (const row of rows) {
+                const action = row.querySelector('.dsm-action');
+                const nameEl = row.querySelector('span:nth-child(2)');
+                if (action && nameEl) {
+                    action.textContent = (this._spectatingName && nameEl.textContent === this._spectatingName)
+                        ? '观战中…' : '';
+                }
+            }
+        }
+    }
+
     _updateDeployTimer(time) {
-        this.elements.deployTimer.textContent = Math.ceil(time);
+        this._deployTimer = time;
+        if (this.elements.deployTimer) {
+            this.elements.deployTimer.textContent = Math.ceil(Math.max(0, time));
+        }
+        // 倒计时结束后，若已选点则开放按钮
+        if (this.elements.btnDeployNow) {
+            const hasSelection = !!(this._selectedDeployPoint || this._selectedSquadMember);
+            this.elements.btnDeployNow.disabled = time > 0.05 && !hasSelection
+                ? true
+                : (time > 0.05 ? true : !hasSelection);
+            // 更直观：时间到了就允许点（没选则自动选）
+            if (time <= 0.05) this.elements.btnDeployNow.disabled = false;
+        }
     }
 
     hideDeployScreen() {

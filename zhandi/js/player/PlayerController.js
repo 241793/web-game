@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260806.2';
 
 // 玩家控制器 - 第一人称移动、视角、姿态控制
 export class PlayerController {
@@ -159,6 +159,7 @@ export class PlayerController {
         this.maxArmor = classConfig.maxArmor || CONFIG.PLAYER.maxArmor;
         this.alive = true;
         this.inVehicle = null;
+        this.inStaticGun = null;
         this.vehicleSeat = 0;
         this.vehicleThirdPerson = false;
         this.deathNotified = false;
@@ -178,6 +179,10 @@ export class PlayerController {
         this.skipHoldTimer = 0;
         this._downedCamProgress = 0;
         this._executionLock = false;
+        this._meleeLock = false;
+        this._banzaiCharge = false;
+        this._aircraftViewEverInited = undefined;
+        this._planeFpActive = false;
         this._stopParachute();
         this._stopVault();
         this._stopClimb();
@@ -297,6 +302,26 @@ export class PlayerController {
             return;
         }
 
+        // 迫击炮地图选点模式：锁定移动与视角（玩家在操作迫击炮）
+        if (this._mortarLock) {
+            this.velocity.set(0, 0, 0);
+            this.isMoving = false;
+            this.isSprinting = false;
+            if (weaponSystem?.weaponGroup) weaponSystem.weaponGroup.visible = false;
+            return;
+        }
+
+        // 固定防空炮炮手模式：视角由玩家标准 look 驱动（防空炮炮塔跟随 player.yaw/pitch），
+        // 位置/相机由 Game 接管。复用 _updateLook 保证鼠标控制手感与平时一致。
+        if (this.inStaticGun) {
+            this.velocity.set(0, 0, 0);
+            this.isMoving = false;
+            this.isSprinting = false;
+            if (weaponSystem?.weaponGroup) weaponSystem.weaponGroup.visible = false;
+            this._updateLook(dt, weaponSystem);
+            return;
+        }
+
         if (this._vaultCooldown > 0) {
             this._vaultCooldown = Math.max(0, this._vaultCooldown - dt);
         }
@@ -389,12 +414,48 @@ export class PlayerController {
         let speed = CONFIG.PLAYER.walkSpeed;
         this.isSprinting = false;
 
+        // 刺雷冲锋：强制朝准心方向高速冲刺，无视玩家输入（战地5刺雷冲锋）
+        if (this._banzaiCharge) {
+            const dir = this._banzaiDir;
+            this.isMoving = true;
+            this.isSprinting = true;
+            const targetVelocity = this._tmpMoveVelocity.set(dir.x * this._banzaiSpeed, 0, dir.z * this._banzaiSpeed);
+            const accel = 60;
+            const accelFactor = 1 - Math.exp(-accel * dt);
+            this.velocity.x += (targetVelocity.x - this.velocity.x) * accelFactor;
+            this.velocity.z += (targetVelocity.z - this.velocity.z) * accelFactor;
+            this.moveSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+
+            // 沿地面前冲（贴地 + 水平碰撞）
+            const targetHeight = this._getStanceHeight();
+            this._tmpMoveOldFeet.copy(this.position);
+            this._tmpMoveOldFeet.y -= targetHeight;
+            const oldFeet = this._tmpMoveOldFeet;
+            const newFeet = this._tmpMoveNewFeet.copy(this.position);
+            newFeet.x += this.velocity.x * dt;
+            newFeet.z += this.velocity.z * dt;
+            newFeet.y -= targetHeight;
+            const groundY = this._getSupportGroundY(newFeet.x, newFeet.z, targetHeight, oldFeet, newFeet.y);
+            newFeet.y = Math.min(newFeet.y, groundY);
+            const resolved = this.world.resolveCharacterMovement
+                ? this.world.resolveCharacterMovement(oldFeet, newFeet, CONFIG.PLAYER.radius, targetHeight)
+                : this.world.resolveMovement(oldFeet, newFeet, CONFIG.PLAYER.radius, targetHeight);
+            this.position.set(resolved.x, resolved.y + targetHeight, resolved.z);
+            this.onGround = true;
+            return;
+        }
+
         // 处决动作期间锁定移动
         if (this._executionLock) {
             this.velocity.x = 0;
             this.velocity.z = 0;
             this.isMoving = false;
             return;
+        }
+
+        // 近战挥砍期间减速（仍可微调走位）
+        if (this._meleeLock) {
+            // 允许轻微移动，但禁止冲刺
         }
 
         // 拖拽倒地队友时禁止冲刺（双手被占用）
@@ -405,10 +466,14 @@ export class PlayerController {
         } else if (this.stance === 'prone') {
             speed = CONFIG.PLAYER.proneSpeed;
         } else if (input.isKeyDown('ShiftLeft') && !input.isMouseDown(2) && !isDragging) {
-            if (!this.isExhausted && this.stamina > CONFIG.PLAYER.minSprintStamina) {
+            if (!this.isExhausted && this.stamina > CONFIG.PLAYER.minSprintStamina && !this._meleeLock) {
                 speed = CONFIG.PLAYER.sprintSpeed;
                 this.isSprinting = true;
             }
+        }
+
+        if (this._meleeLock) {
+            speed *= 0.45;
         }
 
         if (this.suppression > 0.3) {
@@ -936,9 +1001,9 @@ export class PlayerController {
 
         const oldFeet = oldFeetY ?? terrainY;
         const newFeet = newFeetY ?? terrainY;
-        // step-up：向上探测范围只覆盖"下一级台阶"（约 0.32m），
+        // step-up：向上探测覆盖一级楼梯台阶（约 0.2m）并留余量，
         // 避免远处更高的台阶被 getSupportSurfaceInfo 当作支撑面导致跳级
-        const stepProbeUp = 0.32;
+        const stepProbeUp = 0.48;
         const probeToY = Math.max(newFeet, oldFeet + stepProbeUp);
         const probe = this._tmpPlayerProbe;
         probe.set(x, probeToY, z);
@@ -952,8 +1017,8 @@ export class PlayerController {
         if (supportInfo.isRoof && oldFeet < supportInfo.y - 0.75 && newFeet < supportInfo.y - 0.75) {
             return terrainY;
         }
-        // 支撑面不能比脚下高太多（一级台阶约 0.25m，留 0.4m 余量）
-        const maxStepUp = 0.4;
+        // 支撑面不能比脚下高太多（楼梯台阶约 0.2m，允许连续上台）
+        const maxStepUp = 0.55;
         if (supportInfo.y <= oldFeet + maxStepUp || oldFeet >= supportInfo.y - 0.35) {
             return Math.max(terrainY, supportInfo.y);
         }
@@ -1235,9 +1300,22 @@ export class PlayerController {
         if (weaponSystem) weaponSystem.consumeRecoil();
 
         const isAircraft = !!vehicle.config?.isAircraft;
-        if (isAircraft) this.vehicleThirdPerson = true;
+        const isPlane = !!vehicle.config?.isPlane;
+        // 航空载具默认第三人称；固定翼可用 V 切回第一人称座舱（等 V 键切换）
+        if (isAircraft) {
+            if (this._aircraftViewEverInited === undefined) {
+                this._aircraftViewEverInited = true;
+                this.vehicleThirdPerson = true;
+            }
+        }
         // 乘员不允许第三人称（战地乘员是座位第一人称），航空载具除外
         if (!isDriver && !isAircraft) this.vehicleThirdPerson = false;
+        // 固定翼第一人称时：乘员仍第三人称
+        if (isDriver && isPlane && !this.vehicleThirdPerson) {
+            this._planeFpActive = true;
+        } else {
+            this._planeFpActive = false;
+        }
 
         if (isPlaneDriver) {
             this._vehicleLookYaw = THREE.MathUtils.lerp(this._vehicleLookYaw, 0, Math.min(1, dt * 6));
@@ -1264,7 +1342,7 @@ export class PlayerController {
         this.mouseDeltaX = mouseDelta.x;
         this.mouseDeltaY = mouseDelta.y;
 
-        if (isAircraft || (isDriver && this.vehicleThirdPerson)) {
+        if ((isAircraft && this.vehicleThirdPerson) || (!isAircraft && isDriver && this.vehicleThirdPerson)) {
             this._updateDriverThirdPersonCamera(vehicle, dt);
             if (vehicle.setFirstPersonLocalView) vehicle.setFirstPersonLocalView(false);
         } else {
@@ -1362,8 +1440,12 @@ export class PlayerController {
     }
 
     _updateVehicleFirstPersonCamera(vehicle, isDriver, dt) {
+        const isPlane = vehicle.config?.isPlane;
+        // 固定翼第一人称：相机跟随机头俯仰（pitchAngle），鼠标留给飞机操控
         const lookYaw = vehicle.yaw + this._vehicleLookYaw;
-        const lookPitch = this._vehicleLookPitch;
+        const lookPitch = isPlane && isDriver
+            ? (vehicle.pitchAngle || 0)
+            : this._vehicleLookPitch;
 
         // 载具第一人称保留一点前移，减少仪表板/车体穿模
         const push = vehicle.type === 'heli' ? 0.3 : (vehicle.type === 'tank' ? 0.14 : 0.1);
@@ -1413,15 +1495,23 @@ export class PlayerController {
     }
 
     toggleVehicleView() {
-        // 只有驾驶位允许第三人称
         if (!this.inVehicle) return;
-        if (this.inVehicle.config?.isAircraft) return;
+        // 直升机保持第三人称；固定翼/其他载具可切换
+        const isHeli = this.inVehicle.type === 'heli';
+        if (this.inVehicle.config?.isAircraft && isHeli) return;
         if (this.vehicleSeat !== 0) {
             this.vehicleThirdPerson = false;
+            this._planeFpActive = false;
             return;
         }
 
         this.vehicleThirdPerson = !this.vehicleThirdPerson;
+        if (this.inVehicle.config?.isPlane) {
+            // 固定翼：第一人称座舱视角，炮管/机头跟随
+            this._planeFpActive = !this.vehicleThirdPerson;
+        } else {
+            this._planeFpActive = false;
+        }
         if (this.vehicleThirdPerson) {
             const v = this.inVehicle;
             // 立即放到车后
@@ -1614,7 +1704,8 @@ export class PlayerController {
     }
 
     addSuppression(amount) {
-        this.suppression = Math.min(1, this.suppression + amount);
+        const resist = THREE.MathUtils.clamp(this.classConfig?.suppressionResist || 0, 0, 0.8);
+        this.suppression = Math.min(1, this.suppression + amount * (1 - resist));
     }
 
     enterVehicle(vehicle, seat = 0, baseFov = null) {
@@ -1863,6 +1954,7 @@ export class PlayerController {
             armor: this.armor,
             alive: this.alive,
             inVehicle: !!this.inVehicle,
+            inStaticGun: !!this.inStaticGun,
             vehicleSeat: this.vehicleSeat,
             vehicleThirdPerson: this.vehicleThirdPerson,
             mouseDeltaX: this.mouseDeltaX || 0,
@@ -1877,7 +1969,7 @@ export class PlayerController {
             // 开枪无限制：只要活着就能开枪。
             // 移除了冲刺冷却/冲刺中/翻越中的限制 —— 这些"莫名其妙开不了枪"的根因。
             // 武器系统自身的射速/换弹/弹匣空检查仍保留（那是武器机制，不是人为限制）。
-            canFire: this.alive && !this._executionLock,
+            canFire: this.alive && !this._executionLock && !this._meleeLock,
             isVaulting: this._vaulting,
             // 倒地状态
             downed: this.downed,

@@ -1,5 +1,5 @@
 // 突破模式 - 攻方依次突破扇区防线
-import { GameMode } from '../GameMode.js?v=20260801.2';
+import { GameMode } from '../GameMode.js?v=20260802.4';
 
 export class BreakthroughMode extends GameMode {
     constructor(game, modeConfig) {

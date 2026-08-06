@@ -192,6 +192,68 @@ function _woodPattern(ctx, size, baseColor, accentColor) {
     }
 }
 
+function _battleDamagePattern(ctx, size, baseColor, accentColor, detailColor) {
+    // 基底：混凝土/木的脏旧噪声
+    _paintNoise(ctx, size, baseColor, accentColor, detailColor, { density: 2200, streaks: 20, maxDot: 3.0 });
+    const dark = _hexToRgb(0x191512);
+    const scorch = _hexToRgb(0x241f1a);
+    const mud = _hexToRgb(detailColor ?? 0x3c2d20);
+
+    // 焦黑斑（弹着点/烟熏）
+    for (let i = 0; i < 3; i++) {
+        const x = Math.random() * size;
+        const y = Math.random() * size;
+        const r = size * (0.05 + Math.random() * 0.12);
+        const g = ctx.createRadialGradient(x, y, r * 0.1, x, y, r);
+        g.addColorStop(0, _rgbToCss(scorch));
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.globalAlpha = 0.5 + Math.random() * 0.4;
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // 水渍流痕（自上而下淡竖向条纹）
+    ctx.globalAlpha = 0.16;
+    for (let i = 0; i < 6; i++) {
+        const x = Math.random() * size;
+        const w = 2 + Math.random() * 6;
+        ctx.fillStyle = _rgbToCss(mud);
+        ctx.fillRect(x - w, 0, w, size);
+        ctx.fillRect(x, 0, 1 + Math.random() * 3, size);
+    }
+
+    // 裂纹线
+    ctx.strokeStyle = _rgbToCss(dark);
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+        let x = Math.random() * size;
+        let y = Math.random() * size;
+        ctx.globalAlpha = 0.5 + Math.random() * 0.4;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        const segs = 3 + Math.floor(Math.random() * 3);
+        for (let s = 0; s < segs; s++) {
+            const len = size * (0.03 + Math.random() * 0.08);
+            const ang = Math.random() * Math.PI * 2;
+            x += Math.cos(ang) * len;
+            y += Math.sin(ang) * len;
+            ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    }
+
+    // 底部渗泥（墙根污垢）
+    const grad = ctx.createLinearGradient(0, size, 0, size * 0.7);
+    grad.addColorStop(0, _rgbToCss(mud));
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, size * 0.7, size, size * 0.3);
+    ctx.globalAlpha = 1;
+}
+
 function _grassBladesPattern(ctx, size, baseColor, accentColor) {
     ctx.clearRect(0, 0, size, size);
     const base = _hexToRgb(baseColor);
@@ -287,6 +349,9 @@ export function createProceduralTexture(kind, options = {}) {
             break;
         case 'concrete':
             _paintNoise(ctx, size, baseColor, accentColor, detailColor, { density: 2200, streaks: 20, maxDot: 3.0 });
+            break;
+        case 'battle_damage':
+            _battleDamagePattern(ctx, size, baseColor, accentColor, detailColor);
             break;
         default:
             _paintNoise(ctx, size, baseColor, accentColor, detailColor, { density: 1400, streaks: 20, maxDot: 2.5 });

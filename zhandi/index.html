@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>前线突击</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=20260806.3">
     <script type="importmap">
     {
         "imports": {
@@ -31,12 +31,19 @@
     <div id="mainMenu" class="hidden">
         <div class="menu-bg"></div>
         <div class="menu-content">
-            <h1 class="game-title">前线突击</h1>
-            <p class="game-subtitle">FRONTLINE STRIKE</p>
+            <div class="menu-brand">
+                <span class="menu-series">BATTLEFIELD STYLE</span>
+                <h1 class="game-title">前线突击</h1>
+                <p class="game-subtitle">FRONTLINE STRIKE</p>
+            </div>
             <div class="menu-buttons">
-                <button id="btnStart" class="menu-btn primary">开始游戏</button>
+                <button id="btnStart" class="menu-btn primary">多人游戏</button>
                 <button id="btnSettings" class="menu-btn">设置</button>
                 <button id="btnHelp" class="menu-btn">操作说明</button>
+            </div>
+            <div class="menu-footer">
+                <span>征服 · 突破 · 抢攻 · 死斗</span>
+                <span class="menu-ver">v0.9</span>
             </div>
         </div>
     </div>
@@ -82,39 +89,55 @@
         <div class="class-select-content">
             <h2>选择兵种</h2>
             <div class="class-cards">
-<div class="class-card" data-class="assault">
-<div class="class-icon">🔫</div>
-<h3>突击兵</h3>
-<p>主武器: M416 突击步枪</p>
-<p>副武器: P226 手枪</p>
-<p>技能: 弹药包 (3键)</p>
-<p>被动: 冲刺耐力增强</p>
-</div>
-<div class="class-card" data-class="medic">
-<div class="class-icon">💉</div>
-<h3>医疗兵</h3>
-<p>主武器: MP5 冲锋枪</p>
-<p>副武器: P226 手枪</p>
-<p>技能: 医疗包 (3键)</p>
-<p>被动: 血量低于50%自动回血</p>
-</div>
-<div class="class-card" data-class="engineer">
-<div class="class-icon">🔧</div>
-<h3>工程兵</h3>
-<p>主武器: M870 霰弹枪</p>
-<p>副武器: RPG-7 火箭筒</p>
-<p>技能: 维修工具 (3键)</p>
-<p>建造: 三类战地工事 (4键)</p>
-<p>被动: 对载具伤害加成</p>
-</div>
-<div class="class-card" data-class="sniper">
-<div class="class-icon">🎯</div>
-<h3>狙击手</h3>
-<p>主武器: L96 狙击步枪</p>
-<p>副武器: MP443 手枪</p>
-<p>技能: 运动传感器 (3键)</p>
-<p>被动: 屏息稳定</p>
-</div>
+                <div class="class-card" data-class="assault">
+                    <div class="class-icon class-icon-assault"></div>
+                    <h3>突击兵</h3>
+                    <p class="class-role">正面突击 · 弹药支援</p>
+                    <p>主武器: M416 突击步枪</p>
+                    <p>副武器: P226 手枪</p>
+                    <p>技能: 弹药包 (3键)</p>
+                    <p>特殊: 刺雷 (5键)</p>
+                    <p>被动: 冲刺耐力增强</p>
+                </div>
+                <div class="class-card" data-class="medic">
+                    <div class="class-icon class-icon-medic"></div>
+                    <h3>医疗兵</h3>
+                    <p class="class-role">治疗 · 复活队友</p>
+                    <p>主武器: MP5 冲锋枪</p>
+                    <p>副武器: P226 手枪</p>
+                    <p>技能: 医疗包 (3键)</p>
+                    <p>被动: 血量低于50%自动回血</p>
+                </div>
+                <div class="class-card" data-class="engineer">
+                    <div class="class-icon class-icon-engineer"></div>
+                    <h3>工程兵</h3>
+                    <p class="class-role">反载具 · 工事建造</p>
+                    <p>主武器: M870 霰弹枪</p>
+                    <p>副武器: RPG-7 火箭筒</p>
+                    <p>技能: 维修工具 (3键)</p>
+                    <p>特殊: 迫击炮 (5键)</p>
+                    <p>建造: 三类战地工事 (4键)</p>
+                    <p>被动: 对载具伤害加成</p>
+                </div>
+                <div class="class-card" data-class="sniper">
+                    <div class="class-icon class-icon-sniper"></div>
+                    <h3>侦察兵</h3>
+                    <p class="class-role">远距离 · 标记支援</p>
+                    <p>主武器: L96 狙击步枪</p>
+                    <p>副武器: MP443 手枪</p>
+                    <p>技能: 运动传感器 (3键)</p>
+                    <p>被动: 屏息稳定</p>
+                </div>
+                <div class="class-card" data-class="support">
+                    <div class="class-icon class-icon-support"></div>
+                    <h3>支援兵</h3>
+                    <p class="class-role">火力压制 · 阵地支援</p>
+                    <p>主武器: M249 / MG42 轻机枪</p>
+                    <p>副武器: P226 手枪</p>
+                    <p>技能: 弹药包 (3键)</p>
+                    <p>特殊: 反坦克地雷 (5键)</p>
+                    <p>被动: 压制抗性</p>
+                </div>
             </div>
             <div id="weaponSelect" class="weapon-select hidden">
                 <div class="weapon-select-header">
@@ -128,29 +151,61 @@
         </div>
     </div>
 
-    <!-- 设置界面 -->
+    <!-- 设置界面（战地风格：控制 / 画面 / 音效） -->
     <div id="settingsMenu" class="hidden">
         <div class="settings-content">
             <h2>设置</h2>
-            <div class="setting-row">
-                <label>鼠标灵敏度</label>
-                <input type="range" id="sensitivity" min="0.5" max="5" step="0.1" value="2">
-                <span id="sensitivityValue">2.0</span>
+            <div class="settings-tabs">
+                <button type="button" class="settings-tab active" data-tab="control">控制</button>
+                <button type="button" class="settings-tab" data-tab="graphics">画面</button>
+                <button type="button" class="settings-tab" data-tab="audio">音效</button>
             </div>
-            <div class="setting-row">
-                <label>音效音量</label>
-                <input type="range" id="volume" min="0" max="1" step="0.05" value="0.5">
-                <span id="volumeValue">50%</span>
+
+            <div class="settings-panel active" data-panel="control">
+                <div class="setting-row">
+                    <label>鼠标灵敏度</label>
+                    <input type="range" id="sensitivity" min="0.5" max="5" step="0.1" value="2">
+                    <span id="sensitivityValue">2.0</span>
+                </div>
+                <div class="setting-row">
+                    <label>Y 轴反转</label>
+                    <input type="checkbox" id="invertY">
+                </div>
+                <div class="setting-row">
+                    <label>视野范围 (FOV)</label>
+                    <input type="range" id="fov" min="60" max="110" step="5" value="75">
+                    <span id="fovValue">75</span>
+                </div>
             </div>
-            <div class="setting-row">
-                <label>显示帧率</label>
-                <input type="checkbox" id="showFPS" checked>
+
+            <div class="settings-panel" data-panel="graphics">
+                <div class="setting-row">
+                    <label>阴影质量</label>
+                    <select id="shadowQuality">
+                        <option value="2">高</option>
+                        <option value="1">中</option>
+                        <option value="0">关</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <label>渲染缩放</label>
+                    <input type="range" id="renderScale" min="0.7" max="1" step="0.05" value="1">
+                    <span id="renderScaleValue">100%</span>
+                </div>
+                <div class="setting-row">
+                    <label>显示帧率</label>
+                    <input type="checkbox" id="showFPS" checked>
+                </div>
             </div>
-            <div class="setting-row">
-                <label>视野范围 (FOV)</label>
-                <input type="range" id="fov" min="60" max="110" step="5" value="75">
-                <span id="fovValue">75</span>
+
+            <div class="settings-panel" data-panel="audio">
+                <div class="setting-row">
+                    <label>主音量</label>
+                    <input type="range" id="volume" min="0" max="1" step="0.05" value="0.5">
+                    <span id="volumeValue">50%</span>
+                </div>
             </div>
+
             <button id="btnSettingsBack" class="menu-btn primary">返回</button>
         </div>
     </div>
@@ -174,9 +229,10 @@
                 <div class="help-item"><kbd>1 2</kbd><span>切换武器</span></div>
 <div class="help-item"><kbd>3</kbd><span>兵种技能/装备</span></div>
 <div class="help-item"><kbd>4</kbd><span>建造工事（工程兵）</span></div>
+<div class="help-item"><kbd>5</kbd><span>特殊装备（刺雷 / 地雷 / 迫击炮）</span></div>
+<div class="help-item"><kbd>F</kbd><span>互动 / 近战 / 防空炮台</span></div>
 <div class="help-item"><kbd>1 2 3</kbd><span>选择工事类型（建造模式中）</span></div>
 <div class="help-item"><kbd>滚轮</kbd><span>旋转工事方向（建造模式中）</span></div>
-                <div class="help-item"><kbd>F</kbd><span>互动 / 复活队友 / 进入载具</span></div>
                 <div class="help-item"><kbd>G</kbd><span>投掷手雷</span></div>
                 <div class="help-item"><kbd>T</kbd><span>战术标记</span></div>
                 <div class="help-item"><kbd>V</kbd><span>切换载具视角</span></div>
@@ -266,7 +322,7 @@
             <div class="weapon-slots" id="weaponSlots"></div>
             <!-- 兵种技能栏 -->
             <div id="gadgetPanel" class="gadget-panel hidden">
-                <div class="gadget-icon" id="gadgetIcon">📦</div>
+                <div class="gadget-icon" id="gadgetIcon">补</div>
                 <div class="gadget-info">
                     <div class="gadget-name" id="gadgetName">弹药包</div>
                     <div class="gadget-cooldown-bar">
@@ -274,6 +330,16 @@
                     </div>
                 </div>
                 <div class="gadget-key">3</div>
+            </div>
+            <div id="specialPanel" class="gadget-panel special-panel hidden">
+                <div class="gadget-icon" id="specialIcon">特</div>
+                <div class="gadget-info">
+                    <div class="gadget-name" id="specialName">特殊装备</div>
+                    <div class="gadget-cooldown-bar">
+                        <div class="gadget-cooldown-fill" id="specialCooldownFill"></div>
+                    </div>
+                </div>
+                <div class="gadget-key">5</div>
             </div>
         </div>
 
@@ -300,8 +366,26 @@
             <span id="objectiveText">占领据点 A</span>
         </div>
 
-        <!-- 击杀提示 -->
+        <!-- 小队面板（战地风格左侧） -->
+        <div id="squadPanel" class="hud-panel">
+            <div class="squad-title">小队 Alpha</div>
+            <div id="squadList"></div>
+        </div>
+
+        <!-- 击杀提示（右上 kill feed） -->
         <div id="killFeed"></div>
+
+        <!-- 个人击杀确认条（屏幕中下，战地风格） -->
+        <div id="killConfirm" class="hidden">
+            <div class="kc-label" id="kcLabel">击杀</div>
+            <div class="kc-main">
+                <span class="kc-killer" id="kcKiller">你</span>
+                <span class="kc-weapon" id="kcWeapon">M416</span>
+                <span class="kc-victim" id="kcVictim">敌方</span>
+            </div>
+            <div class="kc-tags" id="kcTags"></div>
+            <div class="kc-score hidden" id="kcScore"></div>
+        </div>
 
         <!-- 小地图 -->
         <canvas id="minimap" width="200" height="200"></canvas>
@@ -418,6 +502,22 @@
             </div>
         </div>
 
+        <!-- 迫击炮火力支援地图（部署后选择打击区域） -->
+        <div id="mortarMap" class="hidden">
+            <div class="mortar-map-panel">
+                <div class="mortar-map-header">
+                    <span>迫击炮火力支援</span>
+                    <span id="mortarAmmo">弹药 0</span>
+                </div>
+                <canvas id="mortarMapCanvas" width="640" height="640"></canvas>
+                <div class="mortar-map-footer">
+                    <span>点击地图选择打击区域 · 已标记敌人会显示红点</span>
+                    <span id="mortarTargetLabel"></span>
+                </div>
+                <div class="mortar-map-hint">Esc / 按 5 关闭</div>
+            </div>
+        </div>
+
         <!-- FPS显示 -->
         <div id="fpsCounter"></div>
 
@@ -433,17 +533,30 @@
         <!-- 连杀提示 -->
         <div id="killstreakPopup" class="hidden"></div>
 
-        <!-- 得分板 -->
+        <!-- 得分板（战地风格 K/D/A/得分） -->
         <div id="scoreboard" class="hidden">
             <div class="scoreboard-content">
-                <h2>得分板</h2>
+                <div class="scoreboard-header">
+                    <h2>得分板</h2>
+                    <span class="scoreboard-hint">按住 Tab 查看</span>
+                </div>
                 <div class="scoreboard-teams">
-                    <div class="sb-team">
-                        <h3>我方</h3>
+                    <div class="sb-team sb-friendly">
+                        <div class="sb-team-header">
+                            <h3>我方</h3>
+                            <div class="sb-cols">
+                                <span>K</span><span>D</span><span>A</span><span>得分</span>
+                            </div>
+                        </div>
                         <div id="sbFriendly"></div>
                     </div>
-                    <div class="sb-team">
-                        <h3>敌方</h3>
+                    <div class="sb-team sb-enemy">
+                        <div class="sb-team-header">
+                            <h3>敌方</h3>
+                            <div class="sb-cols">
+                                <span>K</span><span>D</span><span>A</span><span>得分</span>
+                            </div>
+                        </div>
                         <div id="sbEnemy"></div>
                     </div>
                 </div>
@@ -535,6 +648,6 @@
         </div>
     </div>
 
-    <script type="module" src="js/main.js?v=20260801.2"></script>
+    <script type="module" src="js/main.js?v=20260806.3"></script>
 </body>
 </html>

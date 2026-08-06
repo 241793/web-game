@@ -11,6 +11,7 @@ export class InputManager {
         };
         this.locked = false;
         this.sensitivity = 2.0;
+        this.invertY = false;
         this._ignoreMouseUntil = 0;
         this._maxMouseStep = 0.5;
         this._spuriousDeltaThreshold = 1200;
@@ -78,10 +79,10 @@ export class InputManager {
                     return;
                 }
 
-                // 应用 ADS 灵敏度缩放（瞄准时更慢更稳）
+                // 应用 ADS 灵敏度缩放（瞄准时更慢更稳）+ Y 轴反转
                 const effSens = this.sensitivity * this._aimSensitivityScale;
                 const dx = rawX * effSens * 0.002;
-                const dy = rawY * effSens * 0.002;
+                const dy = rawY * effSens * 0.002 * (this.invertY ? -1 : 1);
                 // 逐事件夹紧到 _maxMouseStep，避免单次超大事件导致视角飞出；
                 // 累积值不再二次夹紧，保证连续小幅事件能完整传递（修复"一卡一卡"）。
                 this.mouse.deltaX += Math.max(-this._maxMouseStep, Math.min(this._maxMouseStep, dx));
@@ -195,6 +196,10 @@ export class InputManager {
 
     setSensitivity(value) {
         this.sensitivity = Math.max(0.2, Math.min(6, Number(value) || 2.0));
+    }
+
+    setInvertY(value) {
+        this.invertY = !!value;
     }
 
     // 设置 ADS 瞄准灵敏度缩放（1.0 = 不变，0.5 = 瞄准时鼠标减半）

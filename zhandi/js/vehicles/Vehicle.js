@@ -984,6 +984,7 @@ export class Vehicle {
         cupola.position.set(-0.4, 0.65, 0.3);
         cupola.userData.partName = 'cupola';
         turretGroup.add(cupola);
+
         // 指挥塔舱门
         const cupolaHatch = new THREE.Mesh(
             new THREE.CylinderGeometry(0.22, 0.22, 0.05, 8), matDark
@@ -2029,8 +2030,9 @@ export class Vehicle {
         let targetLoad = 0;
 
         // === 油门：W 或 Space 加速 ===
+        // 起飞提速：地面滑跑用满油门，缩短起飞距离；自动抬头阈值放低，离地更快
         if (input.isKeyDown('KeyW') || input.isKeyDown('Space')) {
-            this.velocity += accel * (isLanded ? 0.6 : 1) * dt;
+            this.velocity += accel * (isLanded ? 0.95 : 1) * dt;
             targetLoad = 1.0;
         } else if (input.isKeyDown('KeyS') && isLanded) {
             // 地面刹车/倒退
@@ -2060,11 +2062,11 @@ export class Vehicle {
             }
             this.pitchAngle = THREE.MathUtils.clamp(this.pitchAngle, -1.1, 0.8);
         } else {
-            // 地面滑跑：机头回平；速度够快自动抬头离地
+            // 地面滑跑：机头回平；速度够快自动抬头离地（阈值放低，滑跑更短即可起飞）
             this.pitchAngle = THREE.MathUtils.lerp(this.pitchAngle, 0, dt * 4);
-            if (Math.abs(this.velocity) > maxSpeed * 0.55) {
-                this.pitchAngle = THREE.MathUtils.lerp(this.pitchAngle, 0.3, dt * 2);
-                this.verticalVelocity = Math.max(this.verticalVelocity, 3);
+            if (Math.abs(this.velocity) > maxSpeed * 0.32) {
+                this.pitchAngle = THREE.MathUtils.lerp(this.pitchAngle, 0.34, dt * 2.5);
+                this.verticalVelocity = Math.max(this.verticalVelocity, 4.5);
             }
         }
 

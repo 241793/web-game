@@ -1,5 +1,5 @@
 // 消耗战模式 - 纯粹击杀消耗敌方票数，无据点得分
-import { GameMode } from '../GameMode.js?v=20260801.2';
+import { GameMode } from '../GameMode.js?v=20260802.4';
 
 export class AttritionMode extends GameMode {
     constructor(game, modeConfig) {

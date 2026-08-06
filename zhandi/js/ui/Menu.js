@@ -1,4 +1,4 @@
-import { CONFIG } from '../config.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260806.2';
 
 // 菜单管理器 - 管理所有菜单界面
 export class MenuManager {
@@ -22,9 +22,12 @@ export class MenuManager {
         this._settingsOrigin = 'menu';
         this.settings = {
             sensitivity: 2.0,
+            invertY: false,
             volume: 0.5,
             showFPS: true,
             fov: 75,
+            shadowQuality: 2,   // 0关 1中 2高
+            renderScale: 1.0,
         };
         this._bindEvents();
         this._loadSettings();
@@ -59,6 +62,7 @@ export class MenuManager {
         document.getElementById('btnMapModeNext').addEventListener('click', () => {
             if (this.selectedModeId && this.selectedMapId) {
                 this._playSound('click');
+                this._classSelectMode = 'start';
                 this.show('classSelect');
             }
         });
@@ -79,45 +83,94 @@ export class MenuManager {
             if (this.selectedClass) {
                 this._playSound('deploy');
                 this.hideAll();
-                if (this.onDeploy) this.onDeploy(this.selectedClass, this.getSelectedLoadout(), this.selectedMapId, this.selectedModeId);
+                if (this._classSelectMode === 'change') {
+                    // 局内换兵种：直接生效，不重开
+                    if (this.onChangeClass) this.onChangeClass(this.selectedClass, this.getSelectedLoadout());
+                } else {
+                    if (this.onDeploy) this.onDeploy(this.selectedClass, this.getSelectedLoadout(), this.selectedMapId, this.selectedModeId);
+                }
+                this._classSelectMode = null;
             }
         });
 
         document.getElementById('btnBackToMenu').addEventListener('click', () => {
             this._playSound('click');
-            this.show('mapModeSelect');
+            if (this._classSelectMode === 'change') {
+                this._classSelectMode = null;
+                this.show('pause');
+            } else {
+                this.show('mapModeSelect');
+            }
         });
 
-        // 设置
+        // 设置标签页切换
+        document.querySelectorAll('.settings-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const name = tab.dataset.tab;
+                document.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t === tab));
+                document.querySelectorAll('.settings-panel').forEach(p => {
+                    p.classList.toggle('active', p.dataset.panel === name);
+                });
+                this._playSound('hover');
+            });
+        });
+
+        // 设置：控制
         const sens = document.getElementById('sensitivity');
         const sensVal = document.getElementById('sensitivityValue');
-        sens.addEventListener('input', () => {
+        if (sens) sens.addEventListener('input', () => {
             this.settings.sensitivity = parseFloat(sens.value);
-            sensVal.textContent = parseFloat(sens.value).toFixed(1);
+            if (sensVal) sensVal.textContent = parseFloat(sens.value).toFixed(1);
             this._applySettingsLive();
             this._saveSettings();
         });
 
-        const vol = document.getElementById('volume');
-        const volVal = document.getElementById('volumeValue');
-        vol.addEventListener('input', () => {
-            this.settings.volume = parseFloat(vol.value);
-            volVal.textContent = `${Math.round(parseFloat(vol.value) * 100)}%`;
-            this._applySettingsLive();
-            this._saveSettings();
-        });
-
-        document.getElementById('showFPS').addEventListener('change', (e) => {
-            this.settings.showFPS = e.target.checked;
+        const invertY = document.getElementById('invertY');
+        if (invertY) invertY.addEventListener('change', (e) => {
+            this.settings.invertY = e.target.checked;
             this._applySettingsLive();
             this._saveSettings();
         });
 
         const fov = document.getElementById('fov');
         const fovVal = document.getElementById('fovValue');
-        fov.addEventListener('input', () => {
+        if (fov) fov.addEventListener('input', () => {
             this.settings.fov = parseInt(fov.value);
-            fovVal.textContent = fov.value;
+            if (fovVal) fovVal.textContent = fov.value;
+            this._applySettingsLive();
+            this._saveSettings();
+        });
+
+        // 设置：画面
+        const shadowQ = document.getElementById('shadowQuality');
+        if (shadowQ) shadowQ.addEventListener('change', () => {
+            this.settings.shadowQuality = parseInt(shadowQ.value);
+            this._applySettingsLive();
+            this._saveSettings();
+        });
+
+        const rScale = document.getElementById('renderScale');
+        const rScaleVal = document.getElementById('renderScaleValue');
+        if (rScale) rScale.addEventListener('input', () => {
+            this.settings.renderScale = parseFloat(rScale.value);
+            if (rScaleVal) rScaleVal.textContent = `${Math.round(this.settings.renderScale * 100)}%`;
+            this._applySettingsLive();
+            this._saveSettings();
+        });
+
+        const showFPS = document.getElementById('showFPS');
+        if (showFPS) showFPS.addEventListener('change', (e) => {
+            this.settings.showFPS = e.target.checked;
+            this._applySettingsLive();
+            this._saveSettings();
+        });
+
+        // 设置：音效
+        const vol = document.getElementById('volume');
+        const volVal = document.getElementById('volumeValue');
+        if (vol) vol.addEventListener('input', () => {
+            this.settings.volume = parseFloat(vol.value);
+            if (volVal) volVal.textContent = `${Math.round(parseFloat(vol.value) * 100)}%`;
             this._applySettingsLive();
             this._saveSettings();
         });
@@ -152,8 +205,15 @@ export class MenuManager {
 
         document.getElementById('btnChangeClass').addEventListener('click', () => {
             this._playSound('click');
+            // 局内换兵种：进入兵种选择界面，选完直接生效不重开
+            this._classSelectMode = 'change';
+            const currentCard = document.querySelector(`.class-card[data-class="${this.selectedClass}"]`);
+            if (currentCard) {
+                document.querySelectorAll('.class-card').forEach(c => c.classList.toggle('selected', c === currentCard));
+                this._renderWeaponSelect(this.selectedClass);
+                document.getElementById('btnDeploy').disabled = false;
+            }
             this.show('classSelect');
-            if (this.onPause) this.onPause();
         });
 
         document.getElementById('btnQuit').addEventListener('click', () => {
@@ -380,7 +440,7 @@ export class MenuManager {
 
     _saveSettings() {
         try {
-            localStorage.setItem('bf_settings_v1', JSON.stringify(this.settings));
+            localStorage.setItem('bf_settings_v2', JSON.stringify(this.settings));
         } catch (e) {
             // 隐私模式等场景下 localStorage 可能不可用，忽略即可
         }
@@ -388,13 +448,17 @@ export class MenuManager {
 
     _loadSettings() {
         try {
-            const raw = localStorage.getItem('bf_settings_v1');
+            // 兼容旧键
+            const raw = localStorage.getItem('bf_settings_v2') || localStorage.getItem('bf_settings_v1');
             if (!raw) return;
             const saved = JSON.parse(raw);
             if (typeof saved.sensitivity === 'number') this.settings.sensitivity = saved.sensitivity;
+            if (typeof saved.invertY === 'boolean') this.settings.invertY = saved.invertY;
             if (typeof saved.volume === 'number') this.settings.volume = saved.volume;
             if (typeof saved.showFPS === 'boolean') this.settings.showFPS = saved.showFPS;
             if (typeof saved.fov === 'number') this.settings.fov = saved.fov;
+            if (typeof saved.shadowQuality === 'number') this.settings.shadowQuality = saved.shadowQuality;
+            if (typeof saved.renderScale === 'number') this.settings.renderScale = saved.renderScale;
         } catch (e) {
             // 读取失败时使用默认设置
         }
@@ -403,38 +467,61 @@ export class MenuManager {
     _syncSettingsUI() {
         const sens = document.getElementById('sensitivity');
         const sensVal = document.getElementById('sensitivityValue');
+        const invertY = document.getElementById('invertY');
         const vol = document.getElementById('volume');
         const volVal = document.getElementById('volumeValue');
         const fps = document.getElementById('showFPS');
         const fov = document.getElementById('fov');
         const fovVal = document.getElementById('fovValue');
+        const shadowQ = document.getElementById('shadowQuality');
+        const rScale = document.getElementById('renderScale');
+        const rScaleVal = document.getElementById('renderScaleValue');
         if (sens) sens.value = this.settings.sensitivity;
         if (sensVal) sensVal.textContent = this.settings.sensitivity.toFixed(1);
+        if (invertY) invertY.checked = !!this.settings.invertY;
         if (vol) vol.value = this.settings.volume;
         if (volVal) volVal.textContent = `${Math.round(this.settings.volume * 100)}%`;
         if (fps) fps.checked = this.settings.showFPS;
         if (fov) fov.value = this.settings.fov;
         if (fovVal) fovVal.textContent = String(this.settings.fov);
-        this.applySettings(this._gameInput, this._gameAudio, this._gameCamera);
+        if (shadowQ) shadowQ.value = String(this.settings.shadowQuality ?? 2);
+        if (rScale) rScale.value = this.settings.renderScale ?? 1;
+        if (rScaleVal) rScaleVal.textContent = `${Math.round((this.settings.renderScale ?? 1) * 100)}%`;
+        this.applySettings(this._gameInput, this._gameAudio, this._gameCamera, this._gameRef);
     }
 
-    applySettings(input, audio, camera) {
-        if (input) input.setSensitivity(this.settings.sensitivity);
+    applySettings(input, audio, camera, game = null) {
+        if (input) {
+            input.setSensitivity(this.settings.sensitivity);
+            if (typeof input.setInvertY === 'function') input.setInvertY(this.settings.invertY);
+        }
         if (audio) audio.setVolume(this.settings.volume);
         if (camera) camera.fov = this.settings.fov;
         const fpsEl = document.getElementById('fpsCounter');
         if (fpsEl) fpsEl.style.display = this.settings.showFPS ? 'block' : 'none';
+
+        // 画面设置落到 Game/World
+        const g = game || this._gameRef;
+        if (g) {
+            const sq = this.settings.shadowQuality ?? 2;
+            g._shadowQualityLevel = sq;
+            g.world?.setShadowQuality?.(sq);
+            const scale = Math.max(0.7, Math.min(1, this.settings.renderScale ?? 1));
+            g._renderScale = scale;
+            if (g.renderer) g.renderer.setPixelRatio(scale);
+        }
     }
 
     // 保存游戏引用，设置变更时实时生效
-    setGameReferences(input, audio, camera) {
+    setGameReferences(input, audio, camera, game = null) {
         this._gameInput = input;
         this._gameAudio = audio;
         this._gameCamera = camera;
+        this._gameRef = game || this._gameRef || null;
     }
 
     _applySettingsLive() {
-        this.applySettings(this._gameInput, this._gameAudio, this._gameCamera);
+        this.applySettings(this._gameInput, this._gameAudio, this._gameCamera, this._gameRef);
         if (this._gameCamera) this._gameCamera.updateProjectionMatrix();
     }
 }

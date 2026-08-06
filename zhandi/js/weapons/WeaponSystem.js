@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260806.2';
 import { createProceduralMaterial } from '../utils/VisualAssets.js?v=20260801.2';
 
 // 武器系统 - 管理武器状态、射击、弹道、特效
@@ -1015,6 +1015,16 @@ export class WeaponSystem {
             );
             rail.position.set(0, 0.045, -0.18);
             group.add(rail);
+            // 导轨齿
+            for (let i = 0; i < 6; i++) {
+                const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.008, 0.012), matDark);
+                tooth.position.set(0, 0.055, -0.08 - i * 0.028);
+                group.add(tooth);
+            }
+            // 前握把（勿命名 grip，下方枪柄已用该标识符）
+            const foreGrip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.07, 0.035), matPolymer);
+            foreGrip.position.set(0, -0.06, -0.22);
+            group.add(foreGrip);
         }
 
         // 弹匣 - AK弯弹匣，M416直弹匣（挂在命名组下，换弹动画可整体拆装）
@@ -3695,22 +3705,27 @@ export class WeaponSystem {
     // 获取当前武器状态（供HUD显示）
     getWeaponState() {
         if (!this.currentWeapon) return null;
-        return {
-            name: this.currentWeapon.config.name,
-            ammoInMag: this.currentWeapon.ammoInMag,
-            reserveAmmo: this.currentWeapon.reserveAmmo,
-            magSize: this.currentWeapon.config.magSize,
-            isReloading: this.isReloading,
-            isAiming: this.isAiming,
-            weaponList: this.weapons.map(w => w.config.name),
-            currentIdx: this.currentWeaponIdx,
-            grenadeCount: this.grenadeCount,
-            fireMode: this.getCurrentFireMode(),
-            fireModeLabel: this.getFireModeLabel(),
-            hasFireModeToggle: this._getAvailableFireModes(this.currentWeapon.config).length > 1,
-            isHoldingBreath: this.isHoldingBreath,
-            isBraced: this.isBraced,
-        };
+        const state = this._weaponState || (this._weaponState = { weaponList: [] });
+        const weaponList = state.weaponList;
+        if (weaponList.length !== this.weapons.length || this._weaponListVersion !== this.weapons) {
+            weaponList.length = this.weapons.length;
+            for (let i = 0; i < this.weapons.length; i++) weaponList[i] = this.weapons[i].config.name;
+            this._weaponListVersion = this.weapons;
+        }
+        state.name = this.currentWeapon.config.name;
+        state.ammoInMag = this.currentWeapon.ammoInMag;
+        state.reserveAmmo = this.currentWeapon.reserveAmmo;
+        state.magSize = this.currentWeapon.config.magSize;
+        state.isReloading = this.isReloading;
+        state.isAiming = this.isAiming;
+        state.currentIdx = this.currentWeaponIdx;
+        state.grenadeCount = this.grenadeCount;
+        state.fireMode = this.getCurrentFireMode();
+        state.fireModeLabel = this.getFireModeLabel();
+        state.hasFireModeToggle = this._getAvailableFireModes(this.currentWeapon.config).length > 1;
+        state.isHoldingBreath = this.isHoldingBreath;
+        state.isBraced = this.isBraced;
+        return state;
     }
 
     // 消费一次性后坐力踢出量（供相机使用，复用返回对象避免每帧分配）

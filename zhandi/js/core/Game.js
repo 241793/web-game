@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260801.2';
-import { InputManager } from './Input.js?v=20260801.2';
-import { World } from '../world/World.js?v=20260801.2';
-import { PlayerController } from '../player/PlayerController.js?v=20260801.2';
-import { WeaponSystem } from '../weapons/WeaponSystem.js?v=20260801.2';
-import { Bot } from '../ai/Bot.js?v=20260801.2';
-import { Vehicle } from '../vehicles/Vehicle.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260806.3';
+import { InputManager } from './Input.js?v=20260802.4';
+import { World } from '../world/World.js?v=20260806.3';
+import { PlayerController } from '../player/PlayerController.js?v=20260806.3';
+import { WeaponSystem } from '../weapons/WeaponSystem.js?v=20260806.3';
+import { Bot } from '../ai/Bot.js?v=20260802.3';
+import { Vehicle } from '../vehicles/Vehicle.js?v=20260802.6';
 import { AudioManager } from '../audio/AudioManager.js?v=20260801.2';
-import { HUD } from '../ui/HUD.js?v=20260801.2';
-import { MenuManager } from '../ui/Menu.js?v=20260801.2';
-import { GameModeFactory } from './GameModeFactory.js?v=20260801.2';
+import { HUD } from '../ui/HUD.js?v=20260806.3';
+import { MenuManager } from '../ui/Menu.js?v=20260806.3';
+import { GameModeFactory } from './GameModeFactory.js?v=20260802.4';
 import { DestructibleRegistry } from '../world/DestructibleRegistry.js?v=20260801.2';
 import { FortificationSystem } from '../world/FortificationSystem.js?v=20260801.2';
 import { LightPool } from '../utils/LightPool.js?v=20260801.2';
@@ -91,6 +91,7 @@ export class Game {
 
         // 部署计时器
         this._deployTimer = 0;
+        this._spectatingBot = null;
 
         // 连杀系统
         this._playerKillstreak = 0;
@@ -162,7 +163,7 @@ export class Game {
         this.audio = new AudioManager();
         this.hud = new HUD();
         this.menu = new MenuManager(this.audio);
-        this.menu.setGameReferences(this.input, this.audio, this.camera);
+        this.menu.setGameReferences(this.input, this.audio, this.camera, this);
 
         // 世界
         this.menu.updateLoading(10, '生成地形...');
@@ -172,6 +173,7 @@ export class Game {
         this.menu.updateLoading(30, '构建战场...');
         this.world.init();
         this._applyMapRenderSettings();
+        this.staticGuns = this.world.staticGuns || [];
         await this._delay(100);
 
         // 菜单回调
@@ -241,14 +243,27 @@ export class Game {
         this.menu.onQuit = () => {
             this.quitGame();
         };
+        this.menu.onChangeClass = (classType, loadout) => {
+            this.changeClassInGame(classType, loadout);
+        };
 
         // 部署按钮
         const btnDeployNow = document.getElementById('btnDeployNow');
         if (btnDeployNow) {
-            btnDeployNow.addEventListener('click', () => {
-                if (this.state === 'playing' && !this.player.alive && this._deployTimer <= 0) {
-                    this._respawnPlayer();
+            btnDeployNow.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (this.state !== 'playing' || this.player.alive || this.player.downed) return;
+                // 倒计时未结束：只提示，但允许已选点在结束后自动/手动部署
+                if (this._deployTimer > 0) {
+                    this.hud.showNotification?.(`还需等待 ${Math.ceil(this._deployTimer)} 秒`, 1.2);
+                    return;
                 }
+                // 未选部署点时自动选最近己方据点
+                if (!this.hud.getSelectedDeployPoint() && !(this.hud.getSelectedSquadMember && this.hud.getSelectedSquadMember())) {
+                    this._autoSelectDeployPoint();
+                }
+                this._respawnPlayer();
             });
         }
     }
@@ -278,13 +293,20 @@ export class Game {
         // 清理上一局残留的部署物
         if (this._deployables) {
             for (const d of this._deployables) {
+                if (d.mesh) this.world?.obstacles?.removeCollisionForMesh?.(d.mesh);
                 if (d.mesh) this._disposeObject3D(d.mesh);
             }
             this._deployables = [];
         }
+        if (this._pendingProjectiles) {
+            for (const p of this._pendingProjectiles) {
+                if (p.mesh) this._disposeObject3D(p.mesh);
+            }
+            this._pendingProjectiles = [];
+        }
 
-        // 应用设置
-        this.menu.applySettings(this.input, this.audio, this.camera);
+        // 应用设置（含阴影/渲染缩放）
+        this.menu.applySettings(this.input, this.audio, this.camera, this);
         this.baseFov = this.camera.fov; // 保存基础 FOV
         this.camera.updateProjectionMatrix();
 
@@ -306,6 +328,8 @@ export class Game {
         this.player.setClass(classType, classConfig);
         this.playerClassType = classType;
         this.playerLoadout = selectedLoadout;
+        this._specialCooldown = 0;
+        this._specialMaxCooldown = CONFIG.SPECIALS?.[classConfig.special]?.cooldown || 0;
 
         // 武器系统
         const loadout = selectedLoadout;
@@ -431,6 +455,13 @@ export class Game {
         this._ambientFx = [];
         this._clearAIGrenades();
 
+        // 结束冲锋/退出防空炮
+        if (this._banzaiActive) this._endBanzai(false);
+        if (this.player?.inStaticGun) this.player.inStaticGun = null;
+        if (this.player?.model) this.player.model.visible = true;
+        if (this._mortarMapOpen) this._closeMortarMap();
+        this.staticGuns = [];
+
         // 1. 销毁旧 bots
         for (const bot of this.bots) {
             if (bot.dispose) bot.dispose();
@@ -466,6 +497,7 @@ export class Game {
         this.world = new World(this.scene, this.currentMapId);
         this.world.init();
         this._applyMapRenderSettings();
+        this.staticGuns = this.world.staticGuns || [];
 
         // 5. 重新生成 bots 和 vehicles
         this._spawnBots();
@@ -649,7 +681,88 @@ export class Game {
         const primary = allowedPrimary.includes(requestedPrimary) ? requestedPrimary : classConfig.primary;
         const secondary = CONFIG.WEAPONS[override?.secondary] ? override.secondary : classConfig.secondary;
 
-        return { primary, secondary };
+        return { primary, secondary, special: classConfig.special || null };
+    }
+
+    // 局内更换兵种：不重开比赛，只重置玩家装备并在基地重生
+    changeClassInGame(classType, loadoutOverride = null) {
+        if (!CONFIG.CLASSES[classType] || !this.player) return;
+        // 倒地/死亡时不允许用换兵种绕过票数与部署倒计时
+        if (!this.player.alive || this.player.downed) {
+            this.state = 'paused';
+            this.menu.show('pause');
+            this.hud.showNotification?.('倒地或阵亡时无法更换兵种', 1.5);
+            return;
+        }
+        // 载具内换兵种必须完整退座并恢复相机参数
+        if (this.player.inVehicle) {
+            const vehicle = this.player.inVehicle;
+            const seat = this.player.vehicleSeat;
+            vehicle.exit?.(seat);
+            this.player.exitVehicle?.();
+            this.hud.hideVehicleUI?.();
+        }
+        // 防空炮炮手/刺雷冲锋退出
+        if (this.player.inStaticGun) this._exitStaticGun();
+        if (this._banzaiActive) this._endBanzai(false);
+        // 迫击炮地图关闭
+        if (this._mortarMapOpen) this._closeMortarMap();
+        const classConfig = CONFIG.CLASSES[classType];
+        const loadout = this._resolvePlayerLoadout(classType, loadoutOverride);
+
+        this.playerClassType = classType;
+        this.playerLoadout = loadout;
+        this.menu.selectedClass = classType;
+        this._specialCooldown = 0;
+        this._specialMaxCooldown = CONFIG.SPECIALS?.[classConfig.special]?.cooldown || 0;
+
+        // 清掉旧部署物（医疗包/弹药包/传感器等归旧所有者）
+        if (this._deployables) {
+            for (let i = this._deployables.length - 1; i >= 0; i--) {
+                const d = this._deployables[i];
+                if (d.owner === this.player) {
+                    if (d.mesh) this.world.obstacles?.removeCollisionForMesh?.(d.mesh);
+                    if (d.mesh) this._disposeObject3D(d.mesh);
+                    this._deployables.splice(i, 1);
+                }
+            }
+        }
+
+        // 在基地重生
+        const spawnPos = this.world.getTeamSpawnPoint
+            ? this.world.getTeamSpawnPoint(this.player.team)
+            : new THREE.Vector3(-95, 0, -95);
+        spawnPos.y = this.world.getHeight(spawnPos.x, spawnPos.z);
+        this.player.spawn(spawnPos, classConfig);
+        this.player.setClass(classType, classConfig);
+
+        // 重置武器
+        if (this.weaponSystem) {
+            this.weaponSystem.loadWeapons([loadout.primary, loadout.secondary]);
+            this.weaponSystem.grenadeCount = 3;
+        }
+
+        // 重置近战/处决和飞行中特殊投射物
+        this._meleeActive = false;
+        this._meleeCooldown = 0;
+        if (this.player) this.player._meleeLock = false;
+        if (this._pendingProjectiles) {
+            for (const p of this._pendingProjectiles) {
+                if (p.owner !== this.player) continue;
+                if (p.mesh) this._disposeObject3D(p.mesh);
+            }
+            this._pendingProjectiles = this._pendingProjectiles.filter(p => p.owner !== this.player);
+        }
+
+        this.hud.hideDeath?.();
+        this.hud.hideDeployScreen?.();
+        this.hud.hideDownedOverlay?.();
+        this.hud.hideVehicleUI?.();
+        this.hud.showNotification?.(`已更换兵种：${classConfig.name}`, 2);
+        this.state = 'playing';
+        this.hud.show();
+        this.input.showMobileControls(true);
+        if (!this.input.isMobile) this.input.requestLock(this.renderer.domElement);
     }
 
     pauseGame() {
@@ -782,7 +895,7 @@ export class Game {
 
     // 组建AI小队
     _setupSquads() {
-        const squadSize = CONFIG.AI.squadSize;
+        const squadSize = CONFIG.AI.squadSize || 4;
         // 按队伍分组
         for (let team = 0; team <= 1; team++) {
             const teamBots = this.bots.filter(b => b.team === team);
@@ -794,6 +907,17 @@ export class Game {
                 for (const member of squad) {
                     member.setSquad(squadId, leader, squad);
                 }
+            }
+        }
+        // 玩家加入友方第一小队
+        if (this.player) {
+            const alpha = this.bots.filter(b => b.team === 0 && b.squadId === 0);
+            this.player.squadId = 0;
+            this.player.squadLeader = alpha[0] || null;
+            this.player.squadMembers = alpha;
+            for (const m of alpha) {
+                if (!m.squadMembers) m.squadMembers = [];
+                if (!m.squadMembers.includes(this.player)) m.squadMembers.push(this.player);
             }
         }
     }
@@ -874,6 +998,23 @@ export class Game {
     _onKeyDown(code, e) {
         if (this.state !== 'playing') return;
 
+        // 迫击炮地图选点模式：Esc / 5 关闭；其余键忽略
+        if (this._mortarMapOpen) {
+            if (code === 'Escape' || code === 'Digit5') this._closeMortarMap();
+            return;
+        }
+
+        // 防空炮炮手模式：只允许 F（离开）、Esc（暂停）、Tab（得分板）
+        if (this.player.inStaticGun) {
+            if (code === 'KeyF') this._handleInteraction();
+            else if (code === 'Escape') this.pauseGame();
+            else if (code === 'Tab') {
+                e.preventDefault();
+                this.hud.toggleScoreboard(true);
+            }
+            return;
+        }
+
         if (this.fortifications?.handleKeyDown(code)) return;
 
         // 武器切换
@@ -883,6 +1024,11 @@ export class Game {
         // 兵种技能/装备 (3键)
         if (code === 'Digit3') {
             this._useGadget();
+        }
+
+        // 特殊装备 (5键)：刺雷/地雷/防空炮/沙袋
+        if (code === 'Digit5') {
+            this._useSpecial();
         }
 
         // 换弹
@@ -959,15 +1105,18 @@ export class Game {
     }
 
     _handleInteraction() {
+        // 防空炮炮手模式：F 离开
+        if (this.player.inStaticGun) {
+            this._exitStaticGun();
+            return;
+        }
         if (this.player.inVehicle) {
             // 离开载具
             const vehicle = this.player.inVehicle;
             const seat = this.player.vehicleSeat;
             vehicle.exit(seat);
             this.player.exitVehicle();
-            this.hud.updateVehicle(null);
-            this.hud.showVehicleCrosshair(false);
-            this.hud.elements.vehicleTurretIndicator.classList.add('hidden');
+            this.hud.hideVehicleUI();
             return;
         }
 
@@ -1004,6 +1153,319 @@ export class Game {
                 // 显示载具准星（只有驾驶座且有武器才显示）
                 this.hud.showVehicleCrosshair(this.nearbyVehicle.config.hasWeapon && seat === 0);
             }
+            return;
+        }
+
+        // 进入固定防空炮台
+        if (this.nearbyStaticGun) {
+            this._enterStaticGun(this.nearbyStaticGun);
+            return;
+        }
+
+        // 无交互目标：近战攻击
+        this._tryMeleeAttack();
+    }
+
+    // === 固定防空炮台（地图自带，玩家可进入操作）===
+    _enterStaticGun(gun) {
+        if (!gun || !gun.alive) return;
+        // 退出载具（若在车内）
+        if (this.player.inVehicle) {
+            const v = this.player.inVehicle;
+            const seat = this.player.vehicleSeat;
+            v.exit?.(seat);
+            this.player.exitVehicle?.();
+            this.hud.hideVehicleUI?.();
+        }
+        this.player.inStaticGun = gun;
+        // 隐藏玩家模型
+        if (this.player.model) this.player.model.visible = false;
+        this._playerModelWasVisible = true;
+        // 锁定到炮位
+        this.player.position.copy(gun.position);
+        this.player.position.y += 1.0;
+        // 视角朝向炮管默认方向（保留玩家原朝向，但先对齐 yaw 到炮台朝向）
+        this.player.yaw = gun.yaw;
+        this.player.pitch = 0;
+        this.hud.hideVehicleUI?.();
+        if (this.hud.showInteraction) this.hud.showInteraction('离开防空炮 (F)');
+        if (this.audio?.playUISound) this.audio.playUISound('click');
+    }
+
+    _exitStaticGun() {
+        const gun = this.player.inStaticGun;
+        if (!gun) return;
+        this.player.inStaticGun = null;
+        // 恢复玩家模型
+        if (this.player.model) this.player.model.visible = true;
+        // 放到炮台旁
+        const exitPos = gun.position.clone();
+        exitPos.x += 2;
+        exitPos.z += 1;
+        exitPos.y = this.world.getHeight(exitPos.x, exitPos.z);
+        this.player.position.copy(exitPos);
+        if (this.hud.showInteraction) this.hud.hideInteraction();
+        if (this.audio?.playUISound) this.audio.playUISound('click');
+    }
+
+    _updateStaticGuns(dt) {
+        const gun = this.player.inStaticGun;
+        if (!gun || !gun.alive) return;
+
+        // 炮塔跟随玩家视角（由 PlayerController._updateLook 驱动的 yaw/pitch）
+        gun.yaw = this.player.yaw;
+        gun.pitch = this.player.pitch;
+
+        // 旋转炮塔 mesh（炮管默认朝 -Z，yaw 绕 Y）
+        if (gun.turretGroup) {
+            gun.turretGroup.rotation.y = gun.yaw;
+            gun.turretGroup.rotation.x = -Math.max(-0.1, Math.min(1.0, gun.pitch));
+        }
+
+        // 相机锁定在炮位（炮手眼位），朝向 = 玩家视角
+        const camPos = gun.position.clone();
+        camPos.y += 1.55;
+        this.camera.position.copy(camPos);
+        this.camera.quaternion.setFromEuler(new THREE.Euler(this.player.pitch, this.player.yaw, 0, 'YXZ'));
+
+        // 更新炮口方向与位置
+        const eyeDir = new THREE.Vector3(
+            -Math.sin(this.player.yaw) * Math.cos(this.player.pitch),
+            Math.sin(this.player.pitch),
+            -Math.cos(this.player.yaw) * Math.cos(this.player.pitch)
+        );
+        if (gun.muzzle) gun.muzzle.copy(camPos).addScaledVector(eyeDir, 0.6);
+
+        // 开火（左键持续）
+        gun.cooldown = Math.max(0, (gun.cooldown || 0) - dt);
+        if (this.input.isMouseDown(0) && gun.cooldown <= 0) {
+            gun.cooldown = 60 / (gun.fireRate || 200);
+            this._fireStaticGun(gun, eyeDir);
+        }
+    }
+
+    _fireStaticGun(gun, direction) {
+        const muzzle = gun.muzzle || gun.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+        const range = gun.range || 220;
+        const raycaster = new THREE.Raycaster(muzzle, direction, 0.5, range);
+
+        // 命中敌方载具
+        let hitVehicle = null;
+        let hitDist = Infinity;
+        for (const v of this.vehicles) {
+            if (!v.alive || v.team === gun.team) continue;
+            const hits = raycaster.intersectObject(v.model, true);
+            if (hits.length > 0 && hits[0].distance < hitDist) {
+                hitDist = hits[0].distance;
+                hitVehicle = v;
+            }
+        }
+        // 命中敌方角色
+        let hitBot = null;
+        for (const bot of this.bots) {
+            if (!bot.alive || bot.team === gun.team) continue;
+            const hits = raycaster.intersectObject(bot.model, true);
+            if (hits.length > 0 && hits[0].distance < hitDist) {
+                hitDist = hits[0].distance;
+                hitBot = bot;
+                hitVehicle = null;
+            }
+        }
+
+        // 曳光弹道
+        const endPoint = muzzle.clone().addScaledVector(direction, hitDist !== Infinity ? hitDist : range);
+        if (this.weaponSystem?._createTracer) {
+            this.weaponSystem._createTracer(muzzle.clone(), endPoint, 0xffcc44, 0.8);
+        }
+        if (this.audio?.playHitMarker) this.audio.playHitMarker(false, false);
+
+        if (hitVehicle) {
+            const killed = hitVehicle.takeDamage(gun.damage, null, this.player);
+            if (killed && gun.team === 0 && hitVehicle.team !== 0) {
+                this._handleFriendlyKill(hitVehicle, '防空炮', this.player);
+            }
+            this._onExplosion(endPoint, 3, gun.damage * 0.3, gun.team, this.player, true);
+        } else if (hitBot) {
+            const wasDowned = !!hitBot.downed;
+            const killed = hitBot.takeDamage(gun.damage, this.player, muzzle);
+            if (this.player && this.player.team !== hitBot.team) {
+                this._recordPlayerDamageContribution(hitBot, gun.damage);
+            }
+            if (killed) {
+                this._handleFriendlyKill(hitBot, '防空炮', this.player);
+            } else if (!wasDowned && hitBot.downed) {
+                this.hud.addKillMessage?.('你', hitBot.name, '防空炮', {
+                    isPlayerKill: true, isDown: true, killerTeam: 0, victimTeam: hitBot.team, showConfirm: true, scoreText: '击倒',
+                });
+            }
+        }
+    }
+
+    // 近战攻击（F 键，无上车/救人/处决目标时）
+    _tryMeleeAttack() {
+        if (!this.player?.alive || this.player.downed || this.player.inVehicle || this.player.inStaticGun) return false;
+        if (this._executing || this.player._executionLock) return false;
+        if (this._meleeActive) return false;
+        if ((this._meleeCooldown || 0) > 0) return false;
+
+        this._meleeActive = true;
+        this._meleeTimer = 0;
+        this._meleeHitApplied = false;
+        this._meleeCooldown = CONFIG.PLAYER.meleeCooldown || 0.55;
+        this.player._meleeLock = true;
+
+        // 亮出匕首，隐藏枪
+        const knife = this._getExecutionKnife();
+        if (knife) {
+            knife.visible = true;
+            knife.position.set(0.42, -0.38, -0.35);
+            knife.rotation.set(0.35, 0.55, 0.25);
+        }
+        if (this.weaponSystem?.hideWeapon) this.weaponSystem.hideWeapon(true);
+        else if (this.weaponSystem?.weaponGroup) this.weaponSystem.weaponGroup.visible = false;
+
+        if (this.audio?.playUISound) this.audio.playUISound('click');
+        return true;
+    }
+
+    _updateMelee(dt) {
+        if (this._meleeCooldown > 0) this._meleeCooldown -= dt;
+        if (!this._meleeActive) return;
+
+        const duration = CONFIG.PLAYER.meleeDuration || 0.42;
+        const hitTime = CONFIG.PLAYER.meleeHitTime || 0.18;
+        this._meleeTimer += dt;
+        const p = Math.min(1, this._meleeTimer / duration);
+
+        const knife = this._executionKnife;
+        if (knife) {
+            knife.visible = true;
+            // 五段：收刀 → 后拉蓄力 → 横斩 → 回收 → 收起
+            if (p < 0.18) {
+                const e = p / 0.18;
+                knife.position.set(0.42 - e * 0.12, -0.38 + e * 0.08, -0.35 - e * 0.05);
+                knife.rotation.set(0.35 + e * 0.4, 0.55 - e * 0.15, 0.25 + e * 0.5);
+            } else if (p < 0.42) {
+                const e = (p - 0.18) / 0.24;
+                knife.position.set(0.30 - e * 0.55, -0.30 + e * 0.35, -0.40 - e * 0.15);
+                knife.rotation.set(0.75 - e * 0.9, 0.40 - e * 0.55, 0.75 - e * 1.4);
+            } else if (p < 0.72) {
+                const e = (p - 0.42) / 0.30;
+                knife.position.set(-0.25 + e * 0.35, 0.05 - e * 0.25, -0.55 + e * 0.15);
+                knife.rotation.set(-0.15 + e * 0.4, -0.15 + e * 0.3, -0.65 + e * 0.5);
+            } else {
+                const e = (p - 0.72) / 0.28;
+                knife.position.set(0.10 + e * 0.32, -0.20 - e * 0.18, -0.40 + e * 0.05);
+                knife.rotation.set(0.25 + e * 0.1, 0.15 + e * 0.4, -0.15 + e * 0.4);
+            }
+        }
+
+        // 命中判定
+        if (!this._meleeHitApplied && this._meleeTimer >= hitTime) {
+            this._meleeHitApplied = true;
+            this._applyMeleeHit();
+        }
+
+        if (p >= 1) {
+            this._meleeActive = false;
+            this.player._meleeLock = false;
+            if (this._executionKnife) this._executionKnife.visible = false;
+            // 恢复枪（非载具/非处决时）
+            if (this.weaponSystem?.weaponGroup && this.player.alive && !this.player.inVehicle && !this._executing) {
+                if (this.weaponSystem.hideWeapon) this.weaponSystem.hideWeapon(false);
+                else this.weaponSystem.weaponGroup.visible = true;
+            }
+        }
+    }
+
+    _applyMeleeHit() {
+        if (!this.player?.alive) return;
+        const range = CONFIG.PLAYER.meleeRange || 2.35;
+        const halfAngle = CONFIG.PLAYER.meleeAngle || 0.95;
+        const damage = CONFIG.PLAYER.meleeDamage || 55;
+        const origin = this.player.position.clone();
+        origin.y += 1.2;
+
+        // 相机前向（水平为主）
+        const forward = new THREE.Vector3();
+        this.camera.getWorldDirection(forward);
+        forward.y = 0;
+        if (forward.lengthSq() < 1e-6) {
+            forward.set(-Math.sin(this.player.yaw), 0, -Math.cos(this.player.yaw));
+        }
+        forward.normalize();
+
+        let hitSomething = false;
+        // 打 AI
+        for (const bot of this.bots) {
+            if (!bot || bot.team === this.player.team) continue;
+            if (!bot.alive && !bot.downed) continue;
+            if (bot._assignedVehicle) continue;
+            const to = bot.position.clone().sub(this.player.position);
+            to.y = 0;
+            const dist = to.length();
+            if (dist > range || dist < 0.05) continue;
+            to.normalize();
+            if (forward.dot(to) < Math.cos(halfAngle)) continue;
+
+            const wasDowned = !!bot.downed;
+            bot._lastHitWasHeadshot = false;
+            const killed = bot.takeDamage(damage, this.player, this.player.position);
+            this._recordPlayerDamageContribution(bot, damage);
+            hitSomething = true;
+            this.hud.showHitMarker(killed || (!wasDowned && bot.downed), false);
+            if (this.audio) {
+                if (killed) this.audio.playHitConfirm?.();
+                else this.audio.playHitMarker?.(false, false);
+            }
+            if (!killed && bot.downed && !wasDowned) {
+                this.hud.addKillMessage('你', bot.name, '近战', {
+                    isPlayerKill: true,
+                    isDown: true,
+                    killerTeam: 0,
+                    victimTeam: bot.team,
+                    showConfirm: true,
+                    scoreText: '击倒',
+                });
+            } else if (killed) {
+                this._onPlayerKill(bot, '近战', false);
+            }
+            break; // 单次只打一个
+        }
+
+        // 打载具（轻微）
+        if (!hitSomething) {
+            for (const vehicle of this.vehicles) {
+                if (!vehicle?.alive || vehicle.team === this.player.team) continue;
+                const dist = this.player.position.distanceTo(vehicle.position);
+                if (dist > range + 1.2) continue;
+                const to = vehicle.position.clone().sub(this.player.position);
+                to.y = 0;
+                if (to.lengthSq() < 1e-4) continue;
+                to.normalize();
+                if (forward.dot(to) < Math.cos(halfAngle)) continue;
+                if (vehicle.takeDamage) {
+                    vehicle.takeDamage(Math.max(8, damage * 0.15), null, this.player);
+                    hitSomething = true;
+                    this.hud.showHitMarker(false, false);
+                }
+                break;
+            }
+        }
+
+        // 打碎近处玻璃
+        if (this.world?.findBreakableGlassNear) {
+            const glass = this.world.findBreakableGlassNear(origin, forward, range);
+            if (glass?.mesh) {
+                this.world.breakGlass(glass.mesh, glass.point);
+                hitSomething = true;
+            }
+        }
+
+        if (hitSomething) {
+            this.player.addShake?.(0.12);
+        } else {
+            this.player.addShake?.(0.05);
         }
     }
 
@@ -1088,6 +1550,609 @@ export class Game {
         } else {
             // 座位被占，回退
             vehicle.enter(this.player, currentSeat);
+        }
+    }
+
+    // === 特殊装备系统（刺雷/反坦克地雷/迫击炮/沙袋）===
+    _useSpecial() {
+        if (!this.player?.alive || this.player.downed || this.player.inVehicle || this.player.inStaticGun) return;
+        // 冲锋中不能再用
+        if (this._banzaiActive) return;
+        const specialId = this.player.classConfig?.special;
+        if (!specialId) {
+            this.hud.showNotification?.('该兵种没有特殊装备', 1.2);
+            return;
+        }
+        const cfg = CONFIG.SPECIALS?.[specialId];
+        if (!cfg) return;
+        if ((this._specialCooldown || 0) > 0) {
+            this.hud.showNotification?.(`${cfg.name} 冷却中 ${Math.ceil(this._specialCooldown)}s`, 1);
+            return;
+        }
+
+        let used = true;
+        switch (cfg.type) {
+            case 'charge': used = this._startBanzai(cfg); break;
+            case 'mortar': used = this._deployMortar(cfg); break;
+            case 'placeable': used = this._placeSpecial(cfg); break;
+            default: used = false;
+        }
+
+        if (used && cfg.cooldown > 0 && cfg.type !== 'mortar') {
+            this._specialCooldown = cfg.cooldown;
+            this._specialMaxCooldown = cfg.cooldown;
+        }
+    }
+
+    // === 刺雷冲锋（战地5刺雷：手持刺雷向前自动冲锋，撞到敌人/载具爆炸，自己也受重创）===
+    _startBanzai(cfg) {
+        if (!this.player?.alive || this.player.downed || this.player.inVehicle) return false;
+
+        this._banzaiActive = true;
+        this._banzaiTimer = cfg.chargeDuration || 2.2;
+        this.player._banzaiCharge = true;
+        this.player._banzaiSpeed = cfg.chargeSpeed || 12;
+        // 冲锋方向 = 准心水平前向
+        const dir = new THREE.Vector3();
+        this.camera.getWorldDirection(dir);
+        dir.y = 0;
+        if (dir.lengthSq() < 1e-4) dir.set(-Math.sin(this.player.yaw), 0, -Math.cos(this.player.yaw));
+        dir.normalize();
+        this.player._banzaiDir = dir;
+        // 面向冲锋方向
+        this.player.yaw = Math.atan2(-dir.x, -dir.z);
+
+        // 隐藏武器，亮出刺雷（短刺锥）
+        if (this.weaponSystem?.weaponGroup) this.weaponSystem.weaponGroup.visible = false;
+        this._showBanzaiChargeModel();
+
+        // 冲锋怒吼音效
+        if (this.audio?.playUISound) this.audio.playUISound('charge');
+        this.hud.showNotification?.('刺雷冲锋！', 1.2);
+        return true;
+    }
+
+    _showBanzaiChargeModel() {
+        if (!this._banzaiChargeModel) {
+            const g = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6, metalness: 0.4 });
+            const matTip = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.3, metalness: 0.6 });
+            // 手柄
+            const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.28, 8), mat);
+            handle.rotation.x = Math.PI / 2;
+            handle.position.set(0.35, -0.25, -0.6);
+            g.add(handle);
+            // 弹头
+            const head = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.4, 10), matTip);
+            head.rotation.x = Math.PI / 2;
+            head.position.set(0.35, -0.25, -0.95);
+            g.add(head);
+            this.camera.add(g);
+            this._banzaiChargeModel = g;
+        }
+        this._banzaiChargeModel.visible = true;
+    }
+
+    _updateBanzai(dt) {
+        if (!this._banzaiActive) return;
+        this._banzaiTimer -= dt;
+        const cfg = CONFIG.SPECIALS.hedgehog;
+        const dir = this.player._banzaiDir;
+        const origin = this.player.position.clone();
+        origin.y += 1.2;
+
+        // 检测前方撞击目标（距离 ~1.8m 内，方向对齐）
+        let hitTarget = null;
+        let hitVehicle = null;
+        const maxReach = 2.0;
+        for (const bot of this.bots) {
+            if (!bot || bot.team === this.player.team) continue;
+            if (!bot.alive && !bot.downed) continue;
+            if (bot._assignedVehicle) continue;
+            const to = bot.position.clone().sub(origin);
+            const dist = to.length();
+            if (dist > maxReach) continue;
+            to.normalize();
+            if (dir.dot(to) < 0.6) continue;
+            hitTarget = bot;
+            break;
+        }
+        if (!hitTarget) {
+            for (const vehicle of this.vehicles) {
+                if (!vehicle?.alive || vehicle.team === this.player.team) continue;
+                const to = vehicle.position.clone().sub(origin);
+                const dist = to.length();
+                if (dist > maxReach + 1.2) continue;
+                to.normalize();
+                if (dir.dot(to) < 0.5) continue;
+                hitVehicle = vehicle;
+                break;
+            }
+        }
+
+        // 撞到目标或超时 → 引爆（自己也受重创）
+        if (hitTarget || hitVehicle || this._banzaiTimer <= 0) {
+            this._endBanzai(true, hitTarget, hitVehicle);
+        }
+    }
+
+    _endBanzai(detonate = false, hitTarget = null, hitVehicle = null) {
+        this._banzaiActive = false;
+        this.player._banzaiCharge = false;
+        this.player._banzaiDir = null;
+        if (this._banzaiChargeModel) this._banzaiChargeModel.visible = false;
+        // 恢复武器（非载具/处决时）
+        if (this.weaponSystem?.weaponGroup && this.player.alive && !this.player.inVehicle && !this._executing) {
+            this.weaponSystem.weaponGroup.visible = true;
+        }
+
+        if (detonate) {
+            const pos = this.player.position.clone();
+            const cfg = CONFIG.SPECIALS.hedgehog;
+            const bonus = 1 + (this.player.classConfig?.vehicleDamageBonus || 0);
+            // 对目标与周围造成巨大爆炸，自己也受重创（战地5刺雷自杀式）
+            this._onExplosion(pos, cfg.radius, cfg.damage * bonus, this.player.team, this.player, false, { antiVehicleMult: 1.0 });
+            // 自己受伤（无视倒地保护，直接掉血）
+            this._damagePlayer(cfg.selfDamage || 200, pos, null, false);
+            if (this.player.addShake) this.player.addShake(0.7);
+            if (this.audio?.playUISound) this.audio.playUISound('explosion');
+            if (hitTarget) {
+                this.hud.addKillMessage?.('你', hitTarget.name, '刺雷', {
+                    isPlayerKill: true, killerTeam: 0, victimTeam: hitTarget.team, showConfirm: false,
+                });
+            }
+        }
+    }
+
+    // === 迫击炮：部署在地上 + 地图选点打击 ===
+    _deployMortar(cfg) {
+        if (!this.player?.alive || this.player.downed || this.player.inVehicle || this.player.inStaticGun) return false;
+        if (this._mortarActive) this._closeMortarMap();
+
+        const pos = this.player.position.clone();
+        pos.y = this.world.getHeight(pos.x, pos.z) + 0.05;
+        const mesh = this._createMortarMesh(pos);
+        this._mortarActive = {
+            position: pos.clone(),
+            mesh,
+            ammo: cfg.ammo || 6,
+            range: cfg.range || 90,
+            minRange: 8,
+            cfg,
+        };
+
+        // 退出指针锁定，让鼠标能点选地图
+        if (!this.input.isMobile) this.input.exitLock();
+        this.player._mortarLock = true;
+        this.hud.showMortarMap(this._mortarActive.ammo);
+        this.hud.setMortarClickCallback((px, py) => this._onMortarMapClick(px, py));
+        this.hud.setMortarRedrawCallback(() => {
+            if (this._mortarMapOpen) this._mortarMapTimer = 0;
+        });
+        this._mortarMapOpen = true;
+        if (this.audio?.playUISound) this.audio.playUISound('click');
+        this.hud.showNotification?.(`迫击炮已部署，点击地图选择打击区域`, 2.5);
+        return true;
+    }
+
+    _createMortarMesh(pos) {
+        const g = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.7, metalness: 0.4 });
+        const matDark = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.8 });
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.12, 12), matDark);
+        base.position.y = 0.06;
+        base.castShadow = true;
+        g.add(base);
+        // 底座支架
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.5), matDark);
+        plate.position.y = 0.16;
+        plate.castShadow = true;
+        g.add(plate);
+        // 炮管（倾斜朝上）
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.9, 12), mat);
+        barrel.position.set(0, 0.55, -0.15);
+        barrel.rotation.x = 1.2;
+        barrel.castShadow = true;
+        g.add(barrel);
+        g.position.copy(pos);
+        this.scene.add(g);
+        return g;
+    }
+
+    // 地图点击 → 换算世界坐标 → 发射
+    _onMortarMapClick(px, py) {
+        if (!this._mortarActive || !this._mortarMapOpen) return;
+        const canvas = this.hud.elements.mortarMapCanvas;
+        const worldSize = this.world.getMapSize ? this.world.getMapSize() : (this.world.mapConfig?.size || 400);
+        const scale = canvas.width / worldSize;
+        const x = px / scale - worldSize / 2;
+        const z = py / scale - worldSize / 2;
+
+        const mortar = this._mortarActive;
+        const dx = x - mortar.position.x;
+        const dz = z - mortar.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        const minRange = mortar.minRange || 8;
+        const range = mortar.range || 90;
+        if (dist < minRange) {
+            this.hud.updateMortarTarget('距离太近，无法打击（≥ ' + Math.round(minRange) + 'm）');
+            return;
+        }
+        if (dist > range) {
+            this.hud.updateMortarTarget('超出射程（≤ ' + Math.round(range) + 'm）');
+            return;
+        }
+
+        const target = new THREE.Vector3(x, this.world.getHeight(x, z), z);
+        this._fireMortarShell(mortar, target);
+    }
+
+    _fireMortarShell(mortar, target) {
+        if (!mortar || mortar.ammo <= 0) return;
+        mortar.ammo--;
+        this.hud.updateMortarAmmo(mortar.ammo);
+
+        const startPos = mortar.position.clone();
+        startPos.y += 0.7;
+        const cfg = mortar.cfg;
+        const owner = this.player;
+        const team = owner.team;
+        const flightTime = Math.min(1.6, Math.max(0.7, target.distanceTo(startPos) / 50));
+        const projMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(0.12, 8, 6),
+            new THREE.MeshStandardMaterial({ color: 0x1c1c1c, metalness: 0.7, roughness: 0.4 })
+        );
+        projMesh.position.copy(startPos);
+        this.scene.add(projMesh);
+        const ctrl = startPos.clone().lerp(target, 0.5);
+        ctrl.y += (cfg.arc || 0.9) * Math.min(cfg.range || 90, 60) * 0.5;
+
+        this._pendingProjectiles = this._pendingProjectiles || [];
+        this._pendingProjectiles.push({
+            owner,
+            mesh: projMesh,
+            t: 0,
+            duration: flightTime,
+            from: startPos,
+            to: target.clone(),
+            ctrl,
+            onArrive: () => {
+                if (projMesh.parent) this.scene.remove(projMesh);
+                projMesh.geometry?.dispose?.();
+                projMesh.material?.dispose?.();
+                this._onExplosion(target, cfg.radius, cfg.damage, team, owner, false, { antiVehicleMult: 0.8 });
+                if (this.player.addShake && this.player.position.distanceTo(target) < cfg.radius * 3) {
+                    this.player.addShake(0.25);
+                }
+            },
+        });
+
+        if (this.audio?.playUISound) this.audio.playUISound('mortar');
+        // 弹药用尽自动关闭
+        if (mortar.ammo <= 0) {
+            this.hud.updateMortarTarget('弹药耗尽');
+            setTimeout(() => this._closeMortarMap(), 400);
+        }
+    }
+
+    // 更新选点地图画面（节流 0.1s，避免每帧全量重绘 640x640）
+    _updateMortarMap(dt) {
+        if (!this._mortarMapOpen || !this._mortarActive) return;
+        this._mortarMapTimer = (this._mortarMapTimer || 0) - dt;
+        if (this._mortarMapTimer > 0) return;
+        this._mortarMapTimer = 0.1;
+        const spotted = [];
+        for (const bot of this.bots) {
+            if (!bot.alive || bot.team === this.player.team) continue;
+            if (!bot._spotted) continue;
+            spotted.push({ x: bot.position.x, z: bot.position.z });
+        }
+        const mortarPos = this._mortarActive.position.clone();
+        mortarPos.range = this._mortarActive.range || 90;
+        mortarPos.minRange = this._mortarActive.minRange || 8;
+        const worldSize = this.world.getMapSize ? this.world.getMapSize() : (this.world.mapConfig?.size || 400);
+        this.hud.drawMortarMap(this.player.position, this.world.capturePoints, spotted, worldSize, mortarPos);
+    }
+
+    _closeMortarMap() {
+        this._mortarMapOpen = false;
+        this.player._mortarLock = false;
+        this.hud.hideMortarMap();
+        if (this._mortarActive?.mesh) this._disposeObject3D(this._mortarActive.mesh);
+        this._mortarActive = null;
+        // 恢复指针锁定
+        if (this.state === 'playing' && !this.input.isMobile) {
+            this.input.requestLock(this.renderer.domElement);
+        }
+        this._specialCooldown = CONFIG.SPECIALS?.mortar?.cooldown || 4;
+        this._specialMaxCooldown = CONFIG.SPECIALS?.mortar?.cooldown || 4;
+    }
+
+    // 部署反坦克地雷 / 沙袋
+    _placeSpecial(cfg) {
+        const pos = this.player.position.clone();
+        const groundY = this.world.getHeight(pos.x, pos.z);
+        pos.y = groundY + 0.05;
+
+        if (cfg.type === 'placeable' && cfg.antiVehicle) {
+            // 限制同种活跃数量
+            this._deployables = this._deployables || [];
+            const active = this._deployables.filter(d => d.kind === 'atmine' && d.owner === this.player).length;
+            const maxActive = cfg.maxActive || 3;
+            if (active >= maxActive) {
+                // 移除最旧的
+                for (let i = 0; i < this._deployables.length && active >= maxActive; i++) {
+                    const d = this._deployables[i];
+                    if (d.kind === 'atmine' && d.owner === this.player) {
+                        if (d.mesh) this._disposeObject3D(d.mesh);
+                        this._deployables.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+            const mesh = this._createMineMesh(pos);
+            this._deployables.push({
+                kind: 'atmine',
+                type: 'atmine',
+                position: pos.clone(),
+                radius: cfg.triggerRadius,
+                damage: cfg.damage,
+                blastRadius: cfg.radius,
+                armingTime: cfg.armingTime,
+                armingTimer: 0,
+                team: this.player.team,
+                owner: this.player,
+                mesh,
+            });
+            this.hud.showNotification?.(`部署 ${cfg.name}`, 1.5);
+        } else if (cfg.type === 'placeable') {
+            // 沙袋掩体
+            this._deployables = this._deployables || [];
+            const active = this._deployables.filter(d => d.kind === 'sandbag' && d.owner === this.player).length;
+            const maxActive = cfg.maxActive || 3;
+            if (active >= maxActive) {
+                for (let i = 0; i < this._deployables.length; i++) {
+                    const d = this._deployables[i];
+                    if (d.kind === 'sandbag' && d.owner === this.player) {
+                        if (d.mesh) this.world.obstacles?.removeCollisionForMesh?.(d.mesh);
+                        if (d.mesh) this._disposeObject3D(d.mesh);
+                        this._deployables.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+            const mesh = this._createSandbagMesh(pos);
+            const box = this.world.obstacles?.addCollisionBox?.(pos.x, pos.y, pos.z, 1.6, 1.0, 0.7, mesh, this.player.yaw);
+            const d = {
+                kind: 'sandbag',
+                type: 'sandbag',
+                position: pos.clone(),
+                remainingTime: cfg.duration || 90,
+                team: this.player.team,
+                owner: this.player,
+                mesh,
+                collisionBox: box,
+            };
+            this._deployables.push(d);
+            this.hud.showNotification?.(`部署 ${cfg.name}`, 1.5);
+        }
+        if (this.audio?.playUISound) this.audio.playUISound('click');
+        return true;
+    }
+
+    // 部署防空炮（自动锁定空中载具射击）
+    _deployFlakGun(cfg) {
+        const pos = this.player.position.clone();
+        const groundY = this.world.getHeight(pos.x, pos.z);
+        pos.y = groundY;
+        this._deployables = this._deployables || [];
+        const existing = this._deployables.filter(d => d.kind === 'flakgun' && d.owner === this.player);
+        if (existing.length >= (cfg.maxActive || 1)) {
+            const oldest = existing[0];
+            const idx = this._deployables.indexOf(oldest);
+            if (oldest.mesh) this._disposeObject3D(oldest.mesh);
+            if (idx >= 0) this._deployables.splice(idx, 1);
+        }
+        const mesh = this._createFlakGunMesh(pos);
+        const d = {
+            kind: 'flakgun',
+            type: 'flakgun',
+            position: pos.clone(),
+            radius: cfg.range,
+            damage: cfg.damage,
+            fireRate: cfg.fireRate,
+            antiAir: true,
+            remainingTime: cfg.duration || 60,
+            fireTimer: 0,
+            team: this.player.team,
+            owner: this.player,
+            mesh,
+            yaw: 0,
+            _aimVector: new THREE.Vector3(),
+            _tracerStart: new THREE.Vector3(),
+            _tracerEnd: new THREE.Vector3(),
+        };
+        this._deployables.push(d);
+        this.hud.showNotification?.(`部署 ${cfg.name}（自动锁定空中载具）`, 2);
+        if (this.audio?.playUISound) this.audio.playUISound('click');
+        return true;
+    }
+
+    _createMineMesh(pos) {
+        const g = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.7, metalness: 0.3 });
+        const matTop = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
+        const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.3, 0.1, 16), mat);
+        disc.position.y = 0.05;
+        disc.castShadow = true;
+        g.add(disc);
+        const top = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.06, 12), matTop);
+        top.position.y = 0.13;
+        g.add(top);
+        // 触压针
+        const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 6), matTop);
+        pin.position.y = 0.21;
+        g.add(pin);
+        g.position.copy(pos);
+        this.scene.add(g);
+        return g;
+    }
+
+    _createSandbagMesh(pos) {
+        const g = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({ color: 0x6b6048, roughness: 0.95 });
+        // 三层沙袋堆
+        for (let row = 0; row < 3; row++) {
+            const count = 3;
+            for (let i = 0; i < count; i++) {
+                const bag = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.28, 0.4), mat);
+                bag.position.set((i - 1) * 0.5, 0.14 + row * 0.3, 0);
+                bag.rotation.y = (Math.random() - 0.5) * 0.1;
+                bag.castShadow = true;
+                g.add(bag);
+            }
+        }
+        g.position.copy(pos);
+        g.rotation.y = this.player.yaw;
+        this.scene.add(g);
+        return g;
+    }
+
+    _createFlakGunMesh(pos) {
+        const g = new THREE.Group();
+        const matMetal = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.5, metalness: 0.7 });
+        const matDark = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
+        // 底座
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 0.25, 12), matDark);
+        base.position.y = 0.12;
+        base.castShadow = true;
+        g.add(base);
+        // 炮架
+        const mount = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), matMetal);
+        mount.position.y = 0.45;
+        g.add(mount);
+        // 双联炮管
+        const barrelGroup = new THREE.Group();
+        barrelGroup.position.y = 0.65;
+        for (const sx of [-0.18, 0.18]) {
+            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.4, 10), matMetal);
+            barrel.rotation.x = Math.PI / 2;
+            barrel.position.set(sx, 0, -0.6);
+            barrelGroup.add(barrel);
+        }
+        // 盾
+        const shield = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 0.05), matDark);
+        shield.position.set(0, 0.1, 0.1);
+        barrelGroup.add(shield);
+        g.userData.barrelGroup = barrelGroup;
+        g.add(barrelGroup);
+        g.position.copy(pos);
+        this.scene.add(g);
+        return g;
+    }
+
+    // 在 _updateDeployables 里处理地雷/防空炮/沙袋
+    _updateSpecials(dt) {
+        if (!this._deployables) return;
+        for (let i = this._deployables.length - 1; i >= 0; i--) {
+            const d = this._deployables[i];
+
+            if (d.kind === 'atmine') {
+                d.armingTimer = (d.armingTimer || 0) + dt;
+                if (d.armingTimer < d.armingTime) continue;
+                // 检查载具靠近
+                for (const vehicle of this.vehicles) {
+                    if (!vehicle.alive || vehicle.team === d.team) continue;
+                    const dist = vehicle.position.distanceTo(d.position);
+                    if (dist < d.radius + 1.2) {
+                        // 引爆
+                        const bonus = 1 + (d.owner?.classConfig?.vehicleDamageBonus || 0);
+                        this._onExplosion(d.position.clone(), d.blastRadius, d.damage * bonus, d.team, d.owner, false);
+                        if (d.mesh) this._disposeObject3D(d.mesh);
+                        this._deployables.splice(i, 1);
+                        break;
+                    }
+                }
+            } else if (d.kind === 'flakgun') {
+                d.remainingTime -= dt;
+                d.fireTimer -= dt;
+                // 找空中敌方载具
+                let target = null;
+                let bestDist = d.radius;
+                for (const vehicle of this.vehicles) {
+                    if (!vehicle.alive || vehicle.team === d.team) continue;
+                    if (!vehicle.config?.isAircraft) continue;
+                    const dist = vehicle.position.distanceTo(d.position);
+                    if (dist < bestDist) { bestDist = dist; target = vehicle; }
+                }
+                if (target) {
+                    // 炮管朝向目标
+                    const to = d._aimVector.copy(target.position).sub(d.position);
+                    d.yaw = Math.atan2(to.x, to.z);
+                    if (d.mesh?.userData?.barrelGroup) {
+                        d.mesh.userData.barrelGroup.rotation.y = d.yaw;
+                    }
+                    if (d.fireTimer <= 0) {
+                        d.fireTimer = 60 / d.fireRate;
+                        // 射出命中判定（简化：直接对目标造成伤害）
+                        const dmg = d.damage * (1 + (d.owner?.classConfig?.vehicleDamageBonus || 0));
+                        const killed = target.takeDamage?.(dmg, d.position, d.owner);
+                        if (killed && d.team === 0 && target.team !== 0) {
+                            this._handleFriendlyKill(target, '防空炮', d.owner);
+                        }
+                        // 弹道曳光
+                        if (this.weaponSystem?._createTracer) {
+                            this.weaponSystem._createTracer(
+                                d._tracerStart.copy(d.position).setY(d.position.y + 0.65),
+                                d._tracerEnd.copy(target.position),
+                                0xffcc44
+                            );
+                        }
+                        if (this.audio?.playHitMarker) this.audio.playHitMarker(false, false);
+                    }
+                }
+                if (d.remainingTime <= 0) {
+                    if (d.mesh) this._disposeObject3D(d.mesh);
+                    this._deployables.splice(i, 1);
+                }
+            } else if (d.kind === 'sandbag') {
+                d.remainingTime -= dt;
+                if (d.remainingTime <= 0) {
+                    if (d.mesh) this.world.obstacles?.removeCollisionForMesh?.(d.mesh);
+                    if (d.mesh) this._disposeObject3D(d.mesh);
+                    this._deployables.splice(i, 1);
+                }
+            }
+        }
+    }
+
+    _updateSpecialCooldown(dt) {
+        if (this._specialCooldown > 0) this._specialCooldown = Math.max(0, this._specialCooldown - dt);
+    }
+
+    _updatePendingProjectiles(dt) {
+        if (!this._pendingProjectiles?.length) return;
+        for (let i = this._pendingProjectiles.length - 1; i >= 0; i--) {
+            const p = this._pendingProjectiles[i];
+            p.t += dt;
+            const t = Math.min(1, p.t / p.duration);
+            if (p.mesh?.parent) {
+                if (p.ctrl) {
+                    // 二次贝塞尔弧线（迫击炮高抛弹道）
+                    const m = p.mesh.position;
+                    const a = p.from, b = p.to, c = p.ctrl;
+                    const u = 1 - t;
+                    m.x = u * u * a.x + 2 * u * t * c.x + t * t * b.x;
+                    m.y = u * u * a.y + 2 * u * t * c.y + t * t * b.y;
+                    m.z = u * u * a.z + 2 * u * t * c.z + t * t * b.z;
+                } else {
+                    p.mesh.position.lerpVectors(p.from, p.to, t);
+                }
+            }
+            if (t >= 1) {
+                p.onArrive?.();
+                this._pendingProjectiles.splice(i, 1);
+            }
         }
     }
 
@@ -1201,6 +2266,7 @@ export class Game {
             radius: CONFIG.GADGETS.sensor.radius,
             remainingTime: CONFIG.GADGETS.sensor.duration,
             team: this.player.team,
+            owner: this.player,
             mesh: this._createDeployableMesh(pos, 0x00ff00, '传感器'),
         };
         this._deployables.push(deployable);
@@ -1288,6 +2354,8 @@ export class Game {
         if (!this._deployables) return;
         for (let i = this._deployables.length - 1; i >= 0; i--) {
             const d = this._deployables[i];
+            // 特殊装备由 _updateSpecials 独立更新，避免重复计时/删除
+            if (d.kind === 'atmine' || d.kind === 'flakgun' || d.kind === 'sandbag') continue;
             d.remainingTime -= dt;
 
             // 效果应用
@@ -1556,7 +2624,13 @@ export class Game {
             if (this.gameMode) this.gameMode.onStrategicObjectiveDestroyed(objective, 0);
             else this.enemyTickets = Math.max(0, this.enemyTickets - tickets);
             if (playerInvolved && this.hud) {
-                this.hud.addKillMessage('你', objective.name, weaponName, true, false);
+                this.hud.addKillMessage('你', objective.name, weaponName, {
+                    isPlayerKill: true,
+                    killerTeam: 0,
+                    victimTeam: 1,
+                    showConfirm: true,
+                    scoreText: `+${score}`,
+                });
                 this.hud.showNotification(`已摧毁 ${objective.name} +${score}分，敌方 -${tickets}票`, 4);
             }
         } else if (sourceTeam === 1) {
@@ -1633,9 +2707,15 @@ export class Game {
 
         // 刚击倒（进入倒地）：只提示，不计击杀分
         if (!killed && target instanceof Bot && target.downed && !wasDowned) {
-            if (this.hud.showNotification) {
-                this.hud.showNotification(isHeadshot ? '爆头击倒！' : '击倒敌人！', 1.2);
-            }
+            this.hud.addKillMessage('你', target.name, weaponName, {
+                isPlayerKill: true,
+                isHeadshot,
+                isDown: true,
+                killerTeam: 0,
+                victimTeam: target.team,
+                showConfirm: true,
+                scoreText: isHeadshot ? '爆头击倒' : '击倒',
+            });
             return;
         }
 
@@ -1697,18 +2777,29 @@ export class Game {
         // 爆头额外加分
         if (isHeadshot) this.friendlyScore += 5;
 
+        let scoreText = isHeadshot ? '+15' : '+10';
+        if (scoreBonus > 0) scoreText += ` 连杀+${scoreBonus}`;
         if (target instanceof Bot) {
-            this.hud.addKillMessage('你', target.name, weaponName, true, false);
+            this.hud.addKillMessage('你', target.name, weaponName, {
+                isPlayerKill: true,
+                isHeadshot,
+                killerTeam: 0,
+                victimTeam: target.team,
+                showConfirm: true,
+                scoreText,
+            });
             // 重生由主循环统一排队；此处也可触发（_respawnQueued 防重入）
             this._respawnBot(target);
         } else if (target instanceof Vehicle) {
-            this.hud.addKillMessage('你', target.config.name, weaponName, true, false);
+            this.hud.addKillMessage('你', target.config.name, weaponName, {
+                isPlayerKill: true,
+                isHeadshot,
+                killerTeam: 0,
+                victimTeam: target.team ?? 1,
+                showConfirm: true,
+                scoreText,
+            });
         }
-
-        // 击杀提示
-        let killText = `击杀！ +10分`;
-        if (isHeadshot) killText = `爆头击杀！ +15分`;
-        this.hud.showNotification(killText, 1.5);
     }
 
     _recordPlayerDamageContribution(target, damage) {
@@ -1739,11 +2830,18 @@ export class Game {
         }
 
         this.playerStats.assists++;
-        this.friendlyScore += CONFIG.GAME.assistScore || 5;
+        const assistScore = CONFIG.GAME.assistScore || 5;
+        this.friendlyScore += assistScore;
         const targetName = target.name || target.config?.name || '敌方目标';
         const killerName = killer?.name || killer?.config?.name || '队友';
-        this.hud.addKillMessage(killerName, targetName, weaponName, false, false);
-        this.hud.showNotification(`助攻 +${CONFIG.GAME.assistScore || 5}分`, 1.5);
+        // 队友击杀 feed 已由 _reportKillFeed 处理；这里只弹助攻确认
+        this.hud.showKillConfirm({
+            killer: killerName,
+            victim: targetName,
+            weapon: weaponName,
+            scoreText: `助攻 +${assistScore}`,
+        });
+        this.hud.showNotification(`助攻 +${assistScore}分`, 1.5);
         this._clearPlayerDamageContribution(target);
         return true;
     }
@@ -1760,6 +2858,35 @@ export class Game {
         target._spottedByPlayerTimer = 0;
         if (this.hud) this.hud.showNotification(`Spot assist +${score}`, 1.5);
         return true;
+    }
+
+    // 全局击杀 feed（AI 互杀 / 队友击杀），不弹玩家个人确认条
+    _reportKillFeed(killer, victim, weaponName = '武器', extra = {}) {
+        if (!this.hud || !victim) return;
+        const killerIsPlayer = killer === this.player;
+        const victimIsPlayer = victim === this.player;
+        // 玩家自己的击杀/死亡已在专用路径处理
+        if (killerIsPlayer || victimIsPlayer) return;
+
+        const killerName = killer
+            ? (killer.name || killer.config?.name || '未知')
+            : '环境';
+        const victimName = victim.name || victim.config?.name || '未知';
+        const weapon = weaponName
+            || killer?.weaponConfig?.name
+            || killer?.config?.name
+            || '武器';
+
+        this.hud.addKillMessage(killerName, victimName, weapon, {
+            isPlayerKill: false,
+            isPlayerDeath: false,
+            isHeadshot: !!extra.isHeadshot || !!victim._lastHitWasHeadshot,
+            isDown: !!extra.isDown,
+            isSuicide: !killer,
+            killerTeam: typeof killer?.team === 'number' ? killer.team : null,
+            victimTeam: typeof victim.team === 'number' ? victim.team : null,
+            showConfirm: false,
+        });
     }
 
     _cleanupPlayerDamageContributions() {
@@ -1784,7 +2911,7 @@ export class Game {
         }
     }
 
-    _onExplosion(position, radius, damage, team, source = null, ignoreTeams = false) {
+    _onExplosion(position, radius, damage, team, source = null, ignoreTeams = false, options = null) {
         // 近距离爆炸镜头震动（按距离衰减）
         if (this.player?.alive && this.player.addShake) {
             const shakeDist = this.player.position.distanceTo(position);
@@ -1846,7 +2973,7 @@ export class Game {
             if (vehicle === sourceVehicle) continue;  // 不伤害发射载具自身
             const dist = vehicle.position.distanceTo(position);
             if (dist < radius) {
-                const dmg = damageAtDistance(dist);
+                const dmg = damageAtDistance(dist) * (options?.antiVehicleMult || 1);
                 if (ignoreTeams || team !== vehicle.team) {
                     if (source === this.player || playerDrivenSource) {
                         this._recordPlayerDamageContribution(vehicle, dmg);
@@ -2487,18 +3614,52 @@ export class Game {
     // 玩家倒地（区别于死亡，不扣票数、不显示部署界面）
     _onPlayerDowned(killer) {
         this.fortifications?.cancel();
+        if (this._banzaiActive) this._endBanzai(false);
+        if (this._mortarMapOpen) this._closeMortarMap();
+        // 防空炮炮手退出
+        if (this.player?.inStaticGun) this._exitStaticGun();
+        // 倒地时若仍在载具内，强制下车并清 UI
+        if (this.player?.inVehicle) {
+            const v = this.player.inVehicle;
+            const seat = this.player.vehicleSeat || 0;
+            try { v.exit?.(seat); } catch (_) {}
+            this.player.exitVehicle?.();
+        }
+        this.hud.hideVehicleUI?.();
+
         let killerName = '环境伤害';
+        let killerTeam = 1;
         if (killer) {
             killerName = killer.name || (killer.config && killer.config.name) || '敌方';
+            if (typeof killer.team === 'number') killerTeam = killer.team;
         }
-        const weaponName = (killer && killer.weaponConfig) ? killer.weaponConfig.name : '武器';
-        this.hud.addKillMessage(killerName, '你(倒地)', weaponName, false, true);
+        const weaponName = (killer && killer.weaponConfig) ? killer.weaponConfig.name
+            : (killer?.config?.name || '武器');
+        this.hud.addKillMessage(killerName, '你', weaponName, {
+            isPlayerDeath: true,
+            isDown: true,
+            killerTeam,
+            victimTeam: 0,
+            showConfirm: true,
+        });
         if (this.hud.showDownedOverlay) this.hud.showDownedOverlay();
         if (this.hud.showNotification) this.hud.showNotification('你已倒地！等待队友救援 (长按空格跳过)', 3);
     }
 
     _onPlayerDeath(killer) {
         this.fortifications?.cancel();
+        if (this._banzaiActive) this._endBanzai(false);
+        if (this._mortarMapOpen) this._closeMortarMap();
+        // 防空炮炮手退出
+        if (this.player?.inStaticGun) this._exitStaticGun();
+        // 死亡时清掉载具 UI（坠毁/爆炸踢出后可能残留）
+        if (this.player?.inVehicle) {
+            const v = this.player.inVehicle;
+            const seat = this.player.vehicleSeat || 0;
+            try { v.exit?.(seat); } catch (_) {}
+            this.player.exitVehicle?.();
+        }
+        this.hud.hideVehicleUI?.();
         this.playerStats.deaths++;
         // 击杀得分和票数扣除委托给游戏模式处理
         if (this.gameMode) {
@@ -2514,11 +3675,20 @@ export class Game {
         this._playerKillstreak = 0;
 
         let killerName = '环境伤害';
+        let killerTeam = 1;
         if (killer) {
             killerName = killer.name || (killer.config && killer.config.name) || '敌方';
+            if (typeof killer.team === 'number') killerTeam = killer.team;
         }
-        const weaponName = (killer && killer.weaponConfig) ? killer.weaponConfig.name : '武器';
-        this.hud.addKillMessage(killerName, '你', weaponName, false, true);
+        const weaponName = (killer && killer.weaponConfig) ? killer.weaponConfig.name
+            : (killer?.config?.name || '武器');
+        this.hud.addKillMessage(killerName, '你', weaponName, {
+            isPlayerDeath: true,
+            isHeadshot: !!this.player?._lastHitWasHeadshot,
+            killerTeam,
+            victimTeam: 0,
+            showConfirm: true,
+        });
 
         // 显示部署界面（替代简单死亡画面）
         const squadMembers = this._getSquadMembers();
@@ -2526,10 +3696,54 @@ export class Game {
             this.world.capturePoints,
             squadMembers,
             CONFIG.PLAYER.respawnTime,
-            null
+            null,
+            (member) => this._startSpectate(member)
         );
         this._deployTimer = CONFIG.PLAYER.respawnTime;
         if (!this.input.isMobile) this.input.exitLock();
+    }
+
+    // 死亡后观战：相机跟随指定队友，确认是否复活在其旁
+    _startSpectate(member) {
+        if (!member || !member.alive) return;
+        const bot = this.bots.find(b => b.name === member.name && b.team === this.player.team);
+        if (!bot || !bot.alive) return;
+        this._spectatingBot = bot;
+        this.hud.setSpectatingName(bot.name);
+        if (this.hud.showNotification) {
+            this.hud.showNotification(`观战 ${bot.name}，点击该成员或部署可结束观战`, 2.5);
+        }
+    }
+
+    _stopSpectate() {
+        this._spectatingBot = null;
+        this.hud.setSpectatingName(null);
+    }
+
+    // 死亡观战相机：跟随目标队友（第三人称视角）
+    _updateSpectateCamera(dt) {
+        const bot = this._spectatingBot;
+        if (!bot) return;
+        if (!bot.alive) {
+            this._stopSpectate();
+            return;
+        }
+        // 相机放在目标后方上方，朝向目标
+        const dist = 6;
+        const height = 2.2;
+        const backX = -Math.sin(bot.yaw) * dist;
+        const backZ = -Math.cos(bot.yaw) * dist;
+        const targetPos = this.camera.position.clone();
+        const groundY = this.world.getHeight(bot.position.x, bot.position.z);
+        targetPos.set(
+            bot.position.x + backX,
+            bot.position.y + height,
+            bot.position.z + backZ
+        );
+        targetPos.y = Math.max(targetPos.y, groundY + 1.0);
+        const lerp = Math.min(1, dt * 6);
+        this.camera.position.lerp(targetPos, lerp);
+        this.camera.lookAt(bot.position.x, bot.position.y + 1.4, bot.position.z);
     }
 
     _respawnBot(bot) {
@@ -2571,6 +3785,7 @@ export class Game {
     }
 
     _respawnPlayer() {
+        this._stopSpectate();
         const classType = this.playerClassType || this.menu.selectedClass || 'assault';
         const classConfig = CONFIG.CLASSES[classType];
 
@@ -2613,19 +3828,36 @@ export class Game {
 
     // 获取玩家所在小队成员状态
     _getSquadMembers() {
-        // 简化：返回友方AI作为小队成员
-        const members = [];
-        for (const bot of this.bots) {
-            if (bot.team === 0) {
-                members.push({
-                    name: bot.name,
-                    alive: bot.alive,
-                    position: bot.position,
-                    classType: bot.classType,
-                });
-            }
-        }
-        return members;
+        // 玩家小队：同 squadId 的友方（无 squad 时取前 4 名友军）
+        const playerSquadId = this.player?.squadId;
+        const friends = this.bots.filter(b => b.team === 0);
+        let squad = playerSquadId != null
+            ? friends.filter(b => b.squadId === playerSquadId)
+            : friends.slice(0, 4);
+        if (squad.length === 0) squad = friends.slice(0, 4);
+        return squad.map(bot => ({
+            name: bot.name,
+            alive: bot.alive,
+            downed: !!bot.downed,
+            health: bot.health,
+            position: bot.position,
+            classType: bot.classType,
+            isSelf: false,
+        }));
+    }
+
+    _updateSquadHUD() {
+        const members = this._getSquadMembers();
+        // 把自己插到首位
+        members.unshift({
+            name: '你',
+            alive: !!(this.player && this.player.alive),
+            downed: !!(this.player && this.player.downed),
+            health: this.player?.health ?? 0,
+            classType: this.playerClassType || 'assault',
+            isSelf: true,
+        });
+        this.hud.updateSquad(members);
     }
 
     _spotTargetFromCrosshair() {
@@ -2723,6 +3955,11 @@ export class Game {
 
     _checkInteraction() {
         this.nearbyExecuteTarget = null;
+        // 防空炮炮手模式下：F 离开
+        if (this.player.inStaticGun) {
+            this.hud.showInteraction('离开防空炮');
+            return;
+        }
         if (this.player.inVehicle) {
             this.hud.showInteraction('离开载具');
             return;
@@ -2767,6 +4004,7 @@ export class Game {
         }
 
         this.nearbyVehicle = null;
+        this.nearbyStaticGun = null;
         let bestScore = Infinity;
         for (const vehicle of this.vehicles) {
             if (!vehicle.alive) continue;
@@ -2779,8 +4017,25 @@ export class Game {
             }
         }
 
+        // 固定防空炮台交互
+        if (!this.nearbyVehicle && this.staticGuns) {
+            for (const gun of this.staticGuns) {
+                if (!gun.alive) continue;
+                if (gun.team !== this.player.team) continue;
+                const dist = this.player.position.distanceTo(gun.position);
+                if (dist < 3.2) {
+                    this.nearbyStaticGun = gun;
+                    break;
+                }
+            }
+        }
+
         if (this.nearbyVehicle) {
             this.hud.showInteraction(`进入${this.nearbyVehicle.config.name}`);
+        } else if (this.nearbyStaticGun) {
+            this.hud.showInteraction('进入防空炮 (F)');
+        } else if ((this._meleeCooldown || 0) <= 0 && !this._meleeActive) {
+            this.hud.showInteraction('近战 (F)');
         } else {
             this.hud.hideInteraction();
         }
@@ -3013,8 +4268,13 @@ export class Game {
             this.playerStats.kills++;
             const score = 15;
             this.friendlyScore += score;
-            this.hud.addKillMessage('你', target.name || '敌方士兵', '匕首处决', false, false);
-            this.hud.showNotification(`处决击杀 +${score}`, 2);
+            this.hud.addKillMessage('你', target.name || '敌方士兵', '匕首处决', {
+                isPlayerKill: true,
+                killerTeam: 0,
+                victimTeam: target.team ?? 1,
+                showConfirm: true,
+                scoreText: `+${score}`,
+            });
             if (this.audio) this.audio.playUISound('capture');
         }
     }
@@ -4288,6 +5548,13 @@ export class Game {
         // 可破坏实体粒子更新
         if (this.destructibles) this.destructibles.update(dt);
 
+        // 建筑细节 LOD（每 0.35 秒更新，远处隐藏室内/窗框细节）
+        this._buildingLodTimer = (this._buildingLodTimer || 0) - dt;
+        if (this._buildingLodTimer <= 0) {
+            this._buildingLodTimer = 0.35;
+            this.world?.obstacles?.updateBuildingLOD?.(this.player?.position, 85);
+        }
+
         // 狙击镜反光更新（战地5特色：远距离可发现狙击手位置）
         this._updateScopeGlare(dt, now);
 
@@ -4306,6 +5573,8 @@ export class Game {
 
         // 处决动作更新（在玩家 update 前，锁定期间禁止移动）
         this._updateExecution(dt);
+        // 近战挥砍
+        this._updateMelee(dt);
 
         // 更新玩家
         let playerState = this.player.getState();
@@ -4360,12 +5629,18 @@ export class Game {
                 if (!this.hud.getSelectedDeployPoint() && !(this.hud.getSelectedSquadMember && this.hud.getSelectedSquadMember())) {
                     this._autoSelectDeployPoint();
                 }
+                this._stopSpectate();
                 this._respawnPlayer();
             }
         }
 
-        // 更新武器系统
-        if (this.weaponSystem && this.player.alive) {
+        // 死亡观战：相机跟随所选队友（此时玩家已死亡，相机由 Game 接管）
+        if (!this.player.alive && !this.player.downed && this._spectatingBot) {
+            this._updateSpectateCamera(dt);
+        }
+
+        // 更新武器系统（防空炮炮手 / 迫击炮选点期间跳过，避免干扰）
+        if (this.weaponSystem && this.player.alive && !this.player.inStaticGun && !this._mortarMapOpen) {
             if (this.player.inVehicle) {
                 // 战地风格：载具内分两种情况
                 // - 驾驶员(seat 0)：使用载具武器（由 Vehicle._handleInput 触发 _fireCannon），
@@ -4472,17 +5747,21 @@ export class Game {
                 this.player.vehicleSeat === 0 &&
                 this.player.inVehicle.config.hasWeapon;
             const hideWeapon = !!this.player.inVehicle ||
+                !!this.player.inStaticGun ||
+                !!this._banzaiActive ||
                 this.player.vehicleThirdPerson ||
                 inArmedVehicleAsDriver ||
                 this.weaponSystem.isScoped() ||
                 !!this._executing ||
                 !!this.player._executionLock ||
+                !!this.player._meleeLock ||
+                !!this._meleeActive ||
                 !!this.fortifications?.active;
             this.weaponSystem.weaponGroup.visible = !hideWeapon;
 
-            // 射击输入 - 半自动武器需要点击触发；处决锁定期间禁止开火
+            // 射击输入 - 半自动武器需要点击触发；处决/近战/防空炮/冲锋锁定期间禁止开火
             const fireHeld = this.input.isMouseDown(0);
-            const canInfantryFire = !this.player.inVehicle && playerState.canFire && !this._executing && !this.player._executionLock && !fortificationInput.wasActive;
+            const canInfantryFire = !this.player.inVehicle && !this.player.inStaticGun && !this._banzaiActive && playerState.canFire && !this._executing && !this.player._executionLock && !this.player._meleeLock && !this._meleeActive && !fortificationInput.wasActive;
             const firePressed = canInfantryFire && this.input.consumeMousePressed
                 ? this.input.consumeMousePressed(0)
                 : fireHeld;
@@ -4590,6 +5869,20 @@ export class Game {
             this._steerBotByOrder(bot, dt);
             bot.update(dt, combatTargets, this.world.capturePoints, this.player);
 
+            // AI 被击倒（非玩家击倒，玩家路径已在 _onPlayerHit 显示）
+            if (bot.downed && !bot._downFeedReported) {
+                bot._downFeedReported = true;
+                if (bot.lastAttacker && bot.lastAttacker !== this.player) {
+                    const wpn = bot.lastAttacker.weaponConfig?.name
+                        || bot.lastAttacker.config?.name
+                        || '武器';
+                    this._reportKillFeed(bot.lastAttacker, bot, wpn, { isDown: true });
+                }
+            }
+            if (!bot.downed && bot.alive) {
+                bot._downFeedReported = false;
+            }
+
             // AI彻底死亡（非倒地）：扣票 + 排队重生
             // 关键修复：倒地 bleedOut / 处决后 onKilled 是空实现，以前从不 _respawnBot，
             // 导致敌方倒地后"像没有复活"。这里在主循环统一触发重生。
@@ -4611,16 +5904,22 @@ export class Game {
                             this._onPlayerKill(bot, weaponName, !!bot._lastHitWasHeadshot);
                         } else if (killer.team === 0 && bot.team === 1) {
                             this.friendlyScore += 10;
+                            this._reportKillFeed(killer, bot, weaponName);
                             this._tryAwardPlayerAssist(bot, killer, weaponName);
                             this._tryAwardPlayerSpotAssist(bot, killer);
                             bot._scoreSettled = true;
                         } else if (killer.team === 1 && bot.team === 0) {
                             this.enemyScore += 10;
+                            this._reportKillFeed(killer, bot, weaponName);
                             this._clearPlayerDamageContribution(bot);
                             bot._scoreSettled = true;
                         } else {
                             bot._scoreSettled = true;
                         }
+                    } else if (!bot._scoreSettled && !bot.lastAttacker) {
+                        // 环境/自杀：仍进 kill feed
+                        this._reportKillFeed(null, bot, '环境');
+                        bot._scoreSettled = true;
                     }
                 }
                 // 无论击杀路径如何，彻底死亡后必须排队重生
@@ -4637,6 +5936,7 @@ export class Game {
         }
 
         // 更新载具
+        let playerStillInVehicle = false;
         for (const vehicle of this.vehicles) {
             if (vehicle.alive) {
                 if (vehicle._spotTimer > 0) {
@@ -4673,33 +5973,48 @@ export class Game {
 
                 // 更新载具HUD
                 if (this.player.inVehicle === vehicle) {
-                    const state = vehicle.getState();
-                    this.hud.updateVehicle(state, this.player.vehicleSeat);
-                    // 按住 H 键临时显示载具控制提示（平时完全淡出不阻碍视野）
-                    const vcEl = this.hud.elements.vehicleControls;
-                    if (vcEl) vcEl.classList.toggle('show-hint', !!this.input.isKeyDown('KeyH'));
-                    // 载具准星：驾驶员位 或 乘员位控制载具武器时显示
-                    const isCrewWeapon = this._crewControlsVehicleWeapon(vehicle);
-                    const showCrosshair = state.hasWeapon && (this.player.vehicleSeat === 0 || isCrewWeapon);
-                    this.hud.showVehicleCrosshair(showCrosshair);
-                    if (showCrosshair) {
-                        // 乘员位（坦克机枪/飞机门机枪）用副武器冷却，驾驶员用主炮冷却
-                        const weaponReady = isCrewWeapon
-                            ? (vehicle.secondaryCooldown <= 0 && vehicle.secondaryAmmo > 0)
-                            : (vehicle.cannonCooldown <= 0 && vehicle.cannonAmmo > 0);
-                        this.hud.updateVehicleCrosshair(
-                            weaponReady,
-                            vehicle.type === 'heli' ? 'aircraft' : 'default'
-                        );
+                    // 载具可能在 update 中被摧毁并踢出玩家
+                    if (!this.player.inVehicle || this.player.inVehicle !== vehicle || !vehicle.alive) {
+                        this.hud.hideVehicleUI();
+                    } else {
+                        playerStillInVehicle = true;
+                        const state = vehicle.getState();
+                        this.hud.updateVehicle(state, this.player.vehicleSeat);
+                        // 按住 H 键临时显示载具控制提示（平时完全淡出不阻碍视野）
+                        const vcEl = this.hud.elements.vehicleControls;
+                        if (vcEl) vcEl.classList.toggle('show-hint', !!this.input.isKeyDown('KeyH'));
+                        // 载具准星：驾驶员位 或 乘员位控制载具武器时显示
+                        const isCrewWeapon = this._crewControlsVehicleWeapon(vehicle);
+                        const showCrosshair = state.hasWeapon && (this.player.vehicleSeat === 0 || isCrewWeapon);
+                        this.hud.showVehicleCrosshair(showCrosshair);
+                        if (showCrosshair) {
+                            // 乘员位（坦克机枪/飞机门机枪）用副武器冷却，驾驶员用主炮冷却
+                            const weaponReady = isCrewWeapon
+                                ? (vehicle.secondaryCooldown <= 0 && vehicle.secondaryAmmo > 0)
+                                : (vehicle.cannonCooldown <= 0 && vehicle.cannonAmmo > 0);
+                            this.hud.updateVehicleCrosshair(
+                                weaponReady,
+                                vehicle.type === 'heli' || vehicle.type === 'plane' ? 'aircraft' : 'default'
+                            );
+                        }
                     }
                 }
             } else {
+                // 载具已摧毁：若玩家仍挂在这台车上，强制清理 UI
+                if (this.player.inVehicle === vehicle) {
+                    if (this.player.exitVehicle) this.player.exitVehicle();
+                    this.hud.hideVehicleUI();
+                }
                 if (vehicle._crashing && vehicle.updateCrash) {
                     vehicle.updateCrash(dt);
                 } else {
                     this._queueVehicleRespawn(vehicle);
                 }
             }
+        }
+        // 兜底：玩家已不在任何载具，但载具 UI 仍显示 → 强制隐藏
+        if (!playerStillInVehicle && !this.player.inVehicle && this.hud._vehicleUiActive) {
+            this.hud.hideVehicleUI();
         }
         this._updateMedicRevives(dt);
         this._updateBotDeployables(dt);
@@ -4721,8 +6036,14 @@ export class Game {
         // 处理AI投掷的手雷
         this._updateAIGrenades(dt);
 
-        // 更新兵种部署物
+        // 更新兵种部署物与特殊装备
         this._updateDeployables(dt);
+        this._updateBanzai(dt);
+        this._updateSpecials(dt);
+        this._updateSpecialCooldown(dt);
+        this._updatePendingProjectiles(dt);
+        this._updateStaticGuns(dt);
+        this._updateMortarMap(dt);
 
         // 交互检测
         if (this.player.alive) {
@@ -4768,16 +6089,34 @@ export class Game {
         const weaponState = this.weaponSystem ? this.weaponSystem.getWeaponState() : null;
 
         // 载具模式下：驾驶员隐藏步兵准星（用载具准星），乘员仍可使用个人武器故保留准星
-        if (playerState.inVehicle && playerState.vehicleSeat === 0) {
-            this.hud.elements.crosshair.style.opacity = '0';
+        // 防空炮炮手 / 迫击炮选点：隐藏步兵准星与武器
+        if (playerState.inStaticGun || this._mortarMapOpen) {
+            if (this.hud.elements.crosshair) {
+                this.hud.elements.crosshair.style.opacity = '0';
+                this.hud.elements.crosshair.classList.add('vehicle-hidden');
+            }
+            if (this.weaponSystem?.weaponGroup) this.weaponSystem.weaponGroup.visible = false;
+        } else if (playerState.inVehicle && playerState.vehicleSeat === 0) {
+            if (this.hud.elements.crosshair) {
+                this.hud.elements.crosshair.style.opacity = '0';
+                this.hud.elements.crosshair.classList.add('vehicle-hidden');
+            }
         } else {
-            this.hud.elements.crosshair.style.opacity = '';
+            if (this.hud.elements.crosshair) {
+                this.hud.elements.crosshair.style.opacity = '';
+                this.hud.elements.crosshair.classList.remove('vehicle-hidden');
+            }
             // 准星
             this.hud.updateCrosshair(playerState, weaponState);
         }
 
+        // 兜底：不在载具时确保载具 UI 已清干净
+        if (!playerState.inVehicle && this.hud._vehicleUiActive) {
+            this.hud.hideVehicleUI();
+        }
+
         // 血量
-        this.hud.updateHealth(playerState.health, CONFIG.PLAYER.maxHealth, playerState.armor, CONFIG.PLAYER.maxArmor);
+        this.hud.updateHealth(playerState.health, this.player.maxHealth, playerState.armor, this.player.maxArmor);
 
         // 体力条
         this.hud.updateStamina(playerState.stamina, playerState.maxStamina, playerState.isExhausted);
@@ -4792,7 +6131,7 @@ export class Game {
         this.hud.updateSuppression(playerState.suppression);
 
         // 低血量效果
-        const healthPct = playerState.health / CONFIG.PLAYER.maxHealth;
+        const healthPct = playerState.health / this.player.maxHealth;
         this.hud.updateLowHealth(healthPct);
 
         // 低血量心跳声
@@ -4807,11 +6146,19 @@ export class Game {
         // 武器
         this.hud.updateWeapon(weaponState);
 
-        // 兵种技能
+        // 兵种技能与特殊装备
         if (this.player.classConfig) {
             const gadgetConfig = CONFIG.GADGETS[this.player.classConfig.gadget];
             if (gadgetConfig) {
                 this.hud.updateGadget(gadgetConfig.name, 0x00ff66, this.player.gadgetCooldown, this.player.gadgetMaxCooldown);
+            }
+            const specialConfig = CONFIG.SPECIALS?.[this.player.classConfig.special];
+            if (this.hud.updateSpecial) {
+                this.hud.updateSpecial(
+                    specialConfig?.name || '',
+                    this._specialCooldown || 0,
+                    this._specialMaxCooldown || specialConfig?.cooldown || 1
+                );
             }
         }
 
@@ -4884,8 +6231,21 @@ export class Game {
             this.hud._scoreboardTimer = 0.5;
             const friendlyBots = this.bots.filter(b => b.team === 0).map(b => b.getState());
             const enemyBots = this.bots.filter(b => b.team === 1).map(b => b.getState());
-            friendlyBots.push({ name: '你', kills: this.playerStats.kills, deaths: this.playerStats.deaths });
+            friendlyBots.push({
+                name: '你',
+                kills: this.playerStats.kills,
+                deaths: this.playerStats.deaths,
+                assists: this.playerStats.assists || 0,
+                isPlayer: true,
+            });
             this.hud.updateScoreboard(friendlyBots, enemyBots);
+            this._updateSquadHUD();
+
+            // 模式动态目标（抢攻 fuse / 突破扇区）
+            const modeUI = this.gameMode?.getUIData?.();
+            if (modeUI?.modeHint) {
+                this.hud.setObjectiveText(modeUI.modeHint);
+            }
         }
 
         // 通知

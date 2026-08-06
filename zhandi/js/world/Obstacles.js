@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createProceduralMaterial } from '../utils/VisualAssets.js?v=20260801.2';
+import { createProceduralMaterial } from '../utils/VisualAssets.js?v=20260802.3';
 
 // 障碍物系统 - 建筑物、掩体、围墙等，带碰撞检测
 export class ObstacleSystem {
@@ -15,6 +15,108 @@ export class ObstacleSystem {
         // 不能只依赖 meshes：树木只登记树干，树叶 Group、草 InstancedMesh、灌木等不会进入射线列表。
         this.generatedObjects = new Set();
         this._glassRaycaster = new THREE.Raycaster();
+        this._buildingLodEntries = [];
+        // 2D 空间哈希：楼梯/二楼后碰撞盒暴增，全表扫描是卡顿主因
+        this._gridCell = 10;
+        this._grid = new Map();
+        this._queryBuf = [];
+        this._queryStamp = 1;
+    }
+
+    _cellKey(ix, iz) {
+        // 地图坐标远小于 ±32768 格，数值打包避免热路径字符串分配。
+        return (ix + 32768) * 65536 + (iz + 32768);
+    }
+
+    _boxWorldXZ(box) {
+        // 旋转盒用外接 AABB 粗测
+        if (!box.rotationY) {
+            return { minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z };
+        }
+        const hw = box.width * 0.5;
+        const hd = box.depth * 0.5;
+        const cos = Math.abs(box.cos);
+        const sin = Math.abs(box.sin);
+        const extX = hw * cos + hd * sin;
+        const extZ = hw * sin + hd * cos;
+        return {
+            minX: box.centerX - extX,
+            maxX: box.centerX + extX,
+            minZ: box.centerZ - extZ,
+            maxZ: box.centerZ + extZ,
+        };
+    }
+
+    _indexBox(box) {
+        const b = this._boxWorldXZ(box);
+        const cells = [];
+        const c = this._gridCell;
+        const i0 = Math.floor(b.minX / c);
+        const i1 = Math.floor(b.maxX / c);
+        const j0 = Math.floor(b.minZ / c);
+        const j1 = Math.floor(b.maxZ / c);
+        for (let ix = i0; ix <= i1; ix++) {
+            for (let iz = j0; iz <= j1; iz++) {
+                const key = this._cellKey(ix, iz);
+                let arr = this._grid.get(key);
+                if (!arr) {
+                    arr = [];
+                    this._grid.set(key, arr);
+                }
+                arr.push(box);
+                cells.push(key);
+            }
+        }
+        box._gridCells = cells;
+    }
+
+    _unindexBox(box) {
+        const cells = box._gridCells;
+        if (!cells) return;
+        for (const key of cells) {
+            const arr = this._grid.get(key);
+            if (!arr) continue;
+            const idx = arr.indexOf(box);
+            if (idx >= 0) {
+                arr[idx] = arr[arr.length - 1];
+                arr.pop();
+            }
+            if (arr.length === 0) this._grid.delete(key);
+        }
+        box._gridCells = null;
+    }
+
+    _queryNearby(minX, maxX, minZ, maxZ) {
+        const buf = this._queryBuf;
+        buf.length = 0;
+        const stamp = ++this._queryStamp;
+        if (this._queryStamp > 1e9) {
+            this._queryStamp = 1;
+            for (const obs of this.obstacles) obs._qStamp = 0;
+        }
+        const c = this._gridCell;
+        const i0 = Math.floor(minX / c);
+        const i1 = Math.floor(maxX / c);
+        const j0 = Math.floor(minZ / c);
+        const j1 = Math.floor(maxZ / c);
+        for (let ix = i0; ix <= i1; ix++) {
+            for (let iz = j0; iz <= j1; iz++) {
+                const arr = this._grid.get(this._cellKey(ix, iz));
+                if (!arr) continue;
+                for (let i = 0; i < arr.length; i++) {
+                    const obs = arr[i];
+                    if (obs._qStamp === stamp) continue;
+                    obs._qStamp = stamp;
+                    buf.push(obs);
+                }
+            }
+        }
+        return buf;
+    }
+
+    rebuildSpatialIndex() {
+        this._grid.clear();
+        for (const box of this.obstacles) this._indexBox(box);
     }
 
     // 添加碰撞盒
@@ -33,8 +135,10 @@ export class ObstacleSystem {
             cos: Math.cos(rotY),
             sin: Math.sin(rotY),
             mesh: mesh,
+            _qStamp: 0,
         };
         this.obstacles.push(box);
+        this._indexBox(box);
         if (mesh) {
             this.meshes.push(mesh);
             mesh.userData.collisionBox = box;
@@ -52,8 +156,12 @@ export class ObstacleSystem {
         const a1z = cosA;
         const ahw = width / 2 + padding;
         const ahd = depth / 2 + padding;
+        // 粗 AABB 邻域
+        const ext = Math.max(width, depth) * 0.5 + padding + 1;
+        const nearby = this._queryNearby(x - ext, x + ext, z - ext, z + ext);
 
-        for (const obs of this.obstacles) {
+        for (let i = 0; i < nearby.length; i++) {
+            const obs = nearby[i];
             if (y + height <= obs.y + 0.05 || y >= obs.y + obs.height - 0.05) continue;
 
             const cosB = obs.cos ?? Math.cos(obs.rotationY || 0);
@@ -112,6 +220,7 @@ export class ObstacleSystem {
         if (!mesh) return;
         const box = mesh.userData?.collisionBox;
         if (box) {
+            this._unindexBox(box);
             const idx = this.obstacles.indexOf(box);
             if (idx >= 0) this.obstacles.splice(idx, 1);
             mesh.userData.collisionBox = null;
@@ -208,16 +317,24 @@ export class ObstacleSystem {
         };
     }
 
-    // AABB碰撞检测 - 检查位置是否与障碍物碰撞
+    // AABB碰撞检测 - 检查位置是否与障碍物碰撞（空间哈希邻域查询）
     checkCollision(position, radius, height) {
         const px = position.x;
         const py = position.y;
         const pz = position.z;
+        // 可踏上高度：楼梯台阶 ~0.2m，略放宽到 0.55 便于连续上台阶
+        const maxStepUp = 0.55;
+        const pad = radius + 0.05;
+        const nearby = this._queryNearby(px - pad, px + pad, pz - pad, pz + pad);
 
-        for (const obs of this.obstacles) {
+        for (let i = 0; i < nearby.length; i++) {
+            const obs = nearby[i];
             const topY = obs.y + obs.height;
             if (py + height <= obs.y) continue;
+            // 已站在顶面之上
             if (py >= topY - 0.06) continue;
+            // 顶面相对脚底在 step-up 范围内：不当作墙，交给支撑面系统踩上去
+            if (topY > py - 0.02 && topY - py <= maxStepUp) continue;
 
             if (obs.rotationY) {
                 const dx = px - obs.centerX;
@@ -229,7 +346,6 @@ export class ObstacleSystem {
                     return true;
                 }
             } else {
-                // 扩展碰撞盒
                 const minX = obs.min.x - radius;
                 const maxX = obs.max.x + radius;
                 const minZ = obs.min.z - radius;
@@ -255,12 +371,15 @@ export class ObstacleSystem {
         const minY = Math.min(fromFeetY, toFeetY) - 0.18;
         const maxY = Math.max(fromFeetY, toFeetY) + 0.18;
         let best = null;
+        const edgeAllowance = Math.min(radius * 0.35, 0.16);
+        const pad = radius + edgeAllowance + 0.05;
+        const nearby = this._queryNearby(px - pad, px + pad, pz - pad, pz + pad);
 
-        for (const obs of this.obstacles) {
+        for (let i = 0; i < nearby.length; i++) {
+            const obs = nearby[i];
             const topY = obs.y + obs.height;
             if (topY < minY || topY > maxY) continue;
 
-            const edgeAllowance = Math.min(radius * 0.35, 0.16);
             let overTop = false;
             if (obs.rotationY) {
                 const dx = px - obs.centerX;
@@ -481,11 +600,14 @@ export class ObstacleSystem {
         // this._createDeadTrees(terrain);
         this._createProceduralScatter(terrain);
         this._createMapThemedSetPieces(terrain);
+        this._createBeachFortifications(terrain);
 
         // 记录完整顶层对象，而不是只有碰撞 mesh。切图时据此移除树叶、草、灌木和装饰物。
         for (const object of this.scene.children) {
             if (!existingSceneChildren.has(object)) this.generatedObjects.add(object);
         }
+        // 生成期 addCollisionBox 已实时索引；再重建一次确保一致
+        this.rebuildSpatialIndex();
     }
 
     dispose() {
@@ -521,6 +643,25 @@ export class ObstacleSystem {
         this.buildingFootprints = [];
         this.buildingDoorZones = [];
         this._treeMats = null;
+        this._buildingLodEntries.length = 0;
+        this._grid.clear();
+        this._queryBuf.length = 0;
+    }
+
+    updateBuildingLOD(position, detailDistance = 85) {
+        if (!position || this._buildingLodEntries.length === 0) return;
+        const maxDistSq = detailDistance * detailDistance;
+        for (let i = 0; i < this._buildingLodEntries.length; i++) {
+            const entry = this._buildingLodEntries[i];
+            const dx = entry.x - position.x;
+            const dz = entry.z - position.z;
+            const detailed = dx * dx + dz * dz <= maxDistSq;
+            if (entry.detailed === detailed) continue;
+            entry.detailed = detailed;
+            for (let j = 0; j < entry.detailMeshes.length; j++) {
+                entry.detailMeshes[j].visible = detailed;
+            }
+        }
     }
 
     // 地图专属主题景物
@@ -530,8 +671,74 @@ export class ObstacleSystem {
             this._createBeachObstacles(terrain, mapId);
         } else if (mapId === 'ardennes') {
             this._createSnowDrifts(terrain);
+        } else if (mapId === 'stalingrad') {
+            this._createUrbanRuins(terrain);
         }
         this._createThemedSceneryBatches(terrain);
+    }
+
+    // 斯大林格勒：废墟墙段、倾倒烟囱、碎石堆
+    _createUrbanRuins(terrain) {
+        const concrete = createProceduralMaterial('battle_damage', {
+            baseColor: 0x7a756c, accentColor: 0x3a3730, detailColor: 0x4a4132,
+            size: 128, repeatX: 2, repeatY: 1, anisotropy: 4,
+        }, { roughness: 0.98 });
+        const brick = createProceduralMaterial('concrete', {
+            baseColor: 0x8a5a42, accentColor: 0x4a2e20, detailColor: 0xb07a58,
+            size: 128, repeatX: 2, repeatY: 2, anisotropy: 4,
+        }, { roughness: 0.96 });
+        const random = this._createSeededRandom(1942);
+        const size = terrain.size;
+
+        // 破碎墙段
+        for (let i = 0; i < 18; i++) {
+            const x = (random() - 0.5) * size * 0.75;
+            const z = (random() - 0.5) * size * 0.75;
+            if (Math.abs(x) < 12 && Math.abs(z) < 12) continue;
+            if (this._shouldSkipPropForBuildingAccess?.(x, z, 2.5)) continue;
+            if (!this._canPlaceProp(terrain, x, z, { maxSlope: 0.55, avoidBuildingPad: 2 })) continue;
+            const y = this._groundY(terrain, x, z);
+            const w = 3 + random() * 5;
+            const h = 1.5 + random() * 3.5;
+            const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.45), random() < 0.5 ? concrete : brick);
+            wall.position.set(x, y + h / 2, z);
+            wall.rotation.y = random() * Math.PI;
+            wall.name = 'ruin_wall';
+            this.scene.add(wall);
+            this.addCollisionBox(x, y, z, w * 0.85, h, 0.6, wall);
+        }
+
+        // 倾倒烟囱 / 柱
+        for (let i = 0; i < 6; i++) {
+            const x = (random() - 0.5) * size * 0.6;
+            const z = (random() - 0.5) * size * 0.6;
+            if (this._shouldSkipPropForBuildingAccess?.(x, z, 2)) continue;
+            if (!this._canPlaceProp(terrain, x, z, { maxSlope: 0.5, avoidBuildingPad: 2 })) continue;
+            const y = this._groundY(terrain, x, z);
+            const h = 4 + random() * 5;
+            const col = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, h, 8), concrete);
+            col.position.set(x, y + h * 0.35, z);
+            col.rotation.z = (0.4 + random() * 0.5) * (random() < 0.5 ? 1 : -1);
+            col.rotation.y = random() * Math.PI;
+            col.name = 'ruin_chimney';
+            this.scene.add(col);
+            this.addCollisionBox(x, y, z, 1.2, 2.2, 1.2, col);
+        }
+
+        // 碎石堆
+        for (let i = 0; i < 14; i++) {
+            const x = (random() - 0.5) * size * 0.7;
+            const z = (random() - 0.5) * size * 0.7;
+            if (!this._canPlaceProp(terrain, x, z, { maxSlope: 0.6, avoidBuildingPad: 1.5 })) continue;
+            const y = this._groundY(terrain, x, z);
+            const r = 0.8 + random() * 1.4;
+            const pile = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), concrete);
+            pile.position.set(x, y + r * 0.35, z);
+            pile.scale.y = 0.45 + random() * 0.3;
+            pile.name = 'rubble';
+            this.scene.add(pile);
+            this.addCollisionBox(x, y, z, r * 1.4, r * 0.7, r * 1.4, pile);
+        }
     }
 
     _createThemedSceneryBatches(terrain) {
@@ -618,6 +825,19 @@ export class ObstacleSystem {
                 baseColor: 0x54504a, accentColor: 0x2b2926, detailColor: 0x777169,
                 size: 64, repeatX: 2, repeatY: 1, anisotropy: 2,
             }, { roughness: 0.98 });
+        } else if (theme === 'urban_ruin') {
+            primaryGeometry = new THREE.BoxGeometry(1.4, 1.1, 0.35);
+            primaryGeometry.translate(0, 0.55, 0);
+            secondaryGeometry = new THREE.BoxGeometry(0.9, 0.55, 0.9);
+            secondaryGeometry.translate(0, 0.28, 0);
+            primaryMaterial = createProceduralMaterial('battle_damage', {
+                baseColor: 0x6a655c, accentColor: 0x2e2b26, detailColor: 0x4a4132,
+                size: 64, repeatX: 1, repeatY: 1, anisotropy: 2,
+            }, { roughness: 0.98 });
+            secondaryMaterial = createProceduralMaterial('concrete', {
+                baseColor: 0x7a5a45, accentColor: 0x3a281c, detailColor: 0xa07858,
+                size: 64, repeatX: 1, repeatY: 1, anisotropy: 2,
+            }, { roughness: 0.97 });
         } else {
             primaryGeometry = new THREE.BoxGeometry(1.05, 0.58, 0.78);
             primaryGeometry.translate(0, 0.29, 0);
@@ -685,6 +905,76 @@ export class ObstacleSystem {
                 this.scene.add(pole);
                 this.addCollisionBox(x, y, z, 0.5, h, 0.5, pole);
             }
+        }
+    }
+
+    // 诺曼底滩头碉堡 + 防波堤（海岸防御工事，含碰撞掩体）
+    _createBeachFortifications(terrain) {
+        const mapId = this.mapConfig?.id;
+        if (mapId !== 'normandy') return;
+
+        const bunkerMat = createProceduralMaterial('concrete', {
+            baseColor: 0x8a8578, accentColor: 0x4a463d, detailColor: 0xb8b0a0,
+            size: 128, repeatX: 2, repeatY: 1, anisotropy: 4,
+        }, { roughness: 0.98 });
+        const bunkerDark = createProceduralMaterial('concrete', {
+            baseColor: 0x6f6a5e, accentColor: 0x38342d, detailColor: 0x97907f,
+            size: 64, repeatX: 1, repeatY: 1, anisotropy: 2,
+        }, { roughness: 0.98 });
+        const random = this._createSeededRandom(99);
+
+        // 防波堤条：沿海岸线（z≈140）排列，提供掩体
+        const wallCount = 6;
+        for (let i = 0; i < wallCount; i++) {
+            const x = -90 + (i / (wallCount - 1)) * 180 + (random() - 0.5) * 6;
+            const z = 138 + (random() - 0.5) * 6;
+            if (this._shouldSkipPropForBuildingAccess(x, z, 2)) continue;
+            const y = this._groundY(terrain, x, z);
+            if (!this._isAboveWater(y)) continue;
+            if (this.checkCollision(new THREE.Vector3(x, 0, z), 2.4, 3)) continue;
+            const block = new THREE.Mesh(new THREE.BoxGeometry(5, 1.4, 1.1), bunkerMat);
+            block.position.set(x, y + 0.7, z);
+            block.name = 'seawall';
+            this.scene.add(block);
+            this.addCollisionBox(x, y, z, 5, 1.4, 1.1, block);
+        }
+
+        // 碉堡：3 个，贴海岸线稍靠内陆
+        const bunkers = [
+            { x: -50, z: 132, yaw: 0.3 },
+            { x: 5, z: 136, yaw: -0.1 },
+            { x: 62, z: 130, yaw: -0.4 },
+        ];
+        for (const b of bunkers) {
+            if (this._shouldSkipPropForBuildingAccess(b.x, b.z, 5)) continue;
+            const y = this._groundY(terrain, b.x, b.z);
+            if (!this._isAboveWater(y)) continue;
+            if (this.checkCollision(new THREE.Vector3(b.x, 0, b.z), 5.5, 4)) continue;
+            const grp = new THREE.Group();
+            // 主体
+            const body = new THREE.Mesh(new THREE.BoxGeometry(4.5, 2.6, 4.5), bunkerMat);
+            body.position.y = 1.3;
+            grp.add(body);
+            // 顶盖
+            const cap = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.6, 5.2), bunkerDark);
+            cap.position.y = 3.0;
+            grp.add(cap);
+            // 射击口（东西南北各看一个面加暗口）
+            const embrasure = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.35, 0.1), bunkerDark);
+            embrasure.position.set(0, 1.5, 2.27);
+            grp.add(embrasure);
+            const embrasure2 = embrasure.clone();
+            embrasure2.position.set(0, 1.5, -2.27);
+            grp.add(embrasure2);
+            // 入口门（朝内陆 -z 侧）
+            const door = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.5, 0.14), bunkerDark);
+            door.position.set(0, 0.75, -2.27);
+            grp.add(door);
+            grp.position.set(b.x, y, b.z);
+            grp.rotation.y = b.yaw;
+            grp.name = 'bunker';
+            this.scene.add(grp);
+            this.addCollisionBox(b.x, y, b.z, 4.5, 2.6, 4.5, grp);
         }
     }
 
@@ -860,10 +1150,10 @@ export class ObstacleSystem {
             this.meshes.push(skirt);
         }
 
-        const wallMat = createProceduralMaterial('concrete', {
+        const wallMat = createProceduralMaterial('battle_damage', {
             baseColor: color,
             accentColor: 0x3f3d35,
-            detailColor: 0xd0c6aa,
+            detailColor: 0x4a4132,
             size: 256,
             repeatX: Math.max(1, Math.ceil(width / 5)),
             repeatY: Math.max(1, Math.ceil(height / 3)),
@@ -940,13 +1230,17 @@ export class ObstacleSystem {
             pane.userData.structure = 'building';
         };
 
-        const addWindowedWallX = (prefix, cx, wallZ, spanW) => {
-            const wallH = height;
+        // 多层建筑：一楼墙只建到二楼地板高度，二楼再单独开窗；单层则用全高
+        const hasSecondFloor = height >= 6 && width >= 9 && depth >= 8;
+        const floor2Y = 3.0;
+        const groundWallH = hasSecondFloor ? floor2Y : height;
+
+        const addWindowedWallX = (prefix, cx, wallZ, spanW, wallH = height) => {
             const windowW = Math.min(Math.max(1.2, spanW * 0.42), Math.max(1.25, spanW - 0.8));
-            const sillH = Math.min(1.05, Math.max(0.78, height * 0.23));
-            const openingH = Math.min(1.15, Math.max(0.9, height * 0.28));
-            const lintelY = y + Math.min(height - 0.55, sillH + openingH);
-            const topH = Math.max(0.45, height - (lintelY - y));
+            const sillH = Math.min(1.05, Math.max(0.78, wallH * 0.28));
+            const openingH = Math.min(1.15, Math.max(0.9, wallH * 0.34));
+            const lintelY = y + Math.min(wallH - 0.35, sillH + openingH);
+            const topH = Math.max(0.28, wallH - (lintelY - y));
             const sideW = Math.max(0.2, (spanW - windowW) / 2);
             if (spanW < 2.2 || windowW >= spanW - 0.25) {
                 addPart(`${prefix}_solid`, cx, y + wallH / 2, wallZ, spanW, wallH, wallThickness, wallMat);
@@ -966,13 +1260,12 @@ export class ObstacleSystem {
             markGlass(pane);
         };
 
-        const addWindowedWallZ = (prefix, wallX, cz, spanD) => {
-            const wallH = height;
+        const addWindowedWallZ = (prefix, wallX, cz, spanD, wallH = height) => {
             const windowD = Math.min(Math.max(1.2, spanD * 0.42), Math.max(1.25, spanD - 0.8));
-            const sillH = Math.min(1.05, Math.max(0.78, height * 0.23));
-            const openingH = Math.min(1.15, Math.max(0.9, height * 0.28));
-            const lintelY = y + Math.min(height - 0.55, sillH + openingH);
-            const topH = Math.max(0.45, height - (lintelY - y));
+            const sillH = Math.min(1.05, Math.max(0.78, wallH * 0.28));
+            const openingH = Math.min(1.15, Math.max(0.9, wallH * 0.34));
+            const lintelY = y + Math.min(wallH - 0.35, sillH + openingH);
+            const topH = Math.max(0.28, wallH - (lintelY - y));
             const sideD = Math.max(0.2, (spanD - windowD) / 2);
             if (spanD < 2.2 || windowD >= spanD - 0.25) {
                 addPart(`${prefix}_solid`, wallX, y + wallH / 2, cz, wallThickness, wallH, spanD, wallMat);
@@ -995,25 +1288,26 @@ export class ObstacleSystem {
         // 地板仅作为视觉和射线表面，不阻挡移动
         addPart('floor', x, y + 0.04, z, width, 0.08, depth, floorMat, false);
 
-        // 前后墙开门洞：左右墙段 + 门楣
+        // 前后墙开门洞：左右墙段 + 门楣（多层时门楣只到二楼地板）
         const sideWallWidth = (width - doorWidth) / 2;
         const leftCenterX = x - doorWidth / 2 - sideWallWidth / 2;
         const rightCenterX = x + doorWidth / 2 + sideWallWidth / 2;
         const frontZ = z + depth / 2 - wallThickness / 2;
         const backZ = z - depth / 2 + wallThickness / 2;
+        const doorLintelH = Math.max(0.35, groundWallH - doorHeight);
         for (const wall of [
             { suffix: 'front', wz: frontZ },
             { suffix: 'back', wz: backZ },
         ]) {
-            addWindowedWallX(`wall_${wall.suffix}_left`, leftCenterX, wall.wz, sideWallWidth);
-            addWindowedWallX(`wall_${wall.suffix}_right`, rightCenterX, wall.wz, sideWallWidth);
+            addWindowedWallX(`wall_${wall.suffix}_left`, leftCenterX, wall.wz, sideWallWidth, groundWallH);
+            addWindowedWallX(`wall_${wall.suffix}_right`, rightCenterX, wall.wz, sideWallWidth, groundWallH);
             addPart(
                 `wall_${wall.suffix}_lintel`,
                 x,
-                y + doorHeight + (height - doorHeight) / 2,
+                y + doorHeight + doorLintelH / 2,
                 wall.wz,
                 doorWidth,
-                height - doorHeight,
+                doorLintelH,
                 wallThickness,
                 wallMat
             );
@@ -1029,15 +1323,15 @@ export class ObstacleSystem {
             { suffix: 'left', wx: leftX },
             { suffix: 'right', wx: rightX },
         ]) {
-            addWindowedWallZ(`wall_${wall.suffix}_back`, wall.wx, backCenterZ, sideWallDepth);
-            addWindowedWallZ(`wall_${wall.suffix}_front`, wall.wx, frontCenterZ, sideWallDepth);
+            addWindowedWallZ(`wall_${wall.suffix}_back`, wall.wx, backCenterZ, sideWallDepth, groundWallH);
+            addWindowedWallZ(`wall_${wall.suffix}_front`, wall.wx, frontCenterZ, sideWallDepth, groundWallH);
             addPart(
                 `wall_${wall.suffix}_lintel`,
                 wall.wx,
-                y + doorHeight + (height - doorHeight) / 2,
+                y + doorHeight + doorLintelH / 2,
                 z,
                 wallThickness,
-                height - doorHeight,
+                doorLintelH,
                 sideDoorWidth,
                 wallMat
             );
@@ -1069,11 +1363,12 @@ export class ObstacleSystem {
         }
 
         // === 二楼 + 靠墙 L 型转弯楼梯（对足够高、足够大的建筑） ===
-        // 设计：楼梯靠墙角爬升。第一段贴 -X 内墙沿 +Z 上升到 1.5m，
-        //       转角平台（靠 -X -Z 角落），第二段贴 -Z 内墙沿 +X 上升到 3.0m 顶端即二楼地板。
-        //       玩家一路向前走上去，不用回头。二楼地板整块铺满，仅在第一段上方留入口洞。
-        if (height >= 6 && width >= 9 && depth >= 8) {
-            const floor2Y = 3.0;
+        // 正确 L 型（靠 -X/-Z 墙角，一路向前无需回头）：
+        //   ① 第一段贴 -X 内墙：从房间内侧（较大 Z）起步，朝 -Z 走向墙角，升到 1.5m
+        //   ② 转角平台：在 -X -Z 墙角，高度 1.5m（第一段终点）
+        //   ③ 第二段贴 -Z 内墙：从平台沿 +X 离开墙角，升到 3.0m 二楼地板
+        // 二楼地板 L 形开口覆盖两段楼梯投影，其余整块连通。
+        if (hasSecondFloor) {
             const innerDepth = depth - wallThickness * 1.6;
             const innerWidth = width - wallThickness * 1.6;
             const innerMinX = x - innerWidth / 2;
@@ -1089,120 +1384,200 @@ export class ObstacleSystem {
             const actualHalfStepH = halfH / halfStepCount;
             const firstRunLen = halfStepCount * stepD;
             const secondRunLen = halfStepCount * stepD;
+            const landingSize = Math.max(stairW, 1.7);
 
-            // 第一段：贴 -X 内墙，从入口端 innerMinZ 起，沿 +Z 爬升到 halfH
-            const run1MinZ = innerMinZ + 0.2;
-            const run1MaxZ = run1MinZ + firstRunLen;
+            // --- 几何：转角平台在 -X -Z 墙角 ---
+            const landingMinX = innerMinX + 0.05;
+            const landingMinZ = innerMinZ + 0.05;
+            const landingCenterX = landingMinX + landingSize / 2;
+            const landingCenterZ = landingMinZ + landingSize / 2;
+
+            // 第一段：贴 -X 墙。底部在 +Z 侧，顶部接到平台（朝 -Z 爬升）
             const run1X = innerMinX + stairW / 2;
-
-            // 转角平台：在 -X -Z 角落，方形
-            const landingSize = stairW + 0.2;
-
-            // 第二段：贴 -Z 内墙，从平台 +X 侧起，沿 +X 爬升到 floor2Y
-            const run2MinX = innerMinX + landingSize;
-            const run2MaxX = run2MinX + secondRunLen;
+            const run1TopZ = landingMinZ + landingSize;           // 第一段最高级靠近平台
+            const run1BottomZ = run1TopZ + firstRunLen;           // 起步更靠房间内侧
+            // 第二段：贴 -Z 墙。从平台 +X 侧起，沿 +X 爬到二楼
             const run2Z = innerMinZ + stairW / 2;
+            const run2StartX = landingMinX + landingSize;
+            const run2EndX = run2StartX + secondRunLen;
 
-            // === 二楼地板：整块铺满，仅在第一段上方留入口洞 ===
-            // 入口洞 = 第一段楼梯投影 + 缓冲
+            // === 二楼地板：L 形开口（覆盖第一段 + 第二段投影）===
             const holeMinX = innerMinX - 0.05;
-            const holeMaxX = innerMinX + stairW + 0.05;
-            const holeMinZ = run1MinZ - 0.3;
-            const holeMaxZ = run1MaxZ + 0.5;
+            const holeMaxX = Math.max(innerMinX + stairW, run2EndX) + 0.15;
+            const holeMinZ = innerMinZ - 0.05;
+            const holeMaxZ = run1BottomZ + 0.25;
+            // 第二段条带开口（靠 -Z）
+            const run2HoleMaxZ = innerMinZ + stairW + 0.15;
+            const run2HoleMaxX = run2EndX + 0.2;
 
             const slabThickness = 0.18;
-            const slabAY0 = y + floor2Y;
-            // 板 A：洞 +X 侧大板（覆盖大部分二楼）
+            const slabY = y + floor2Y;
+
+            // 板 A：洞口右侧大板（X > holeMaxX，全深度）—— 若第二段更长则 holeMaxX 已含第二段
             const aMinX = holeMaxX;
-            const aMaxX = innerMaxX;
-            if (aMaxX - aMinX > 0.3) {
-                addPart('floor2_main', (aMinX + aMaxX) / 2, slabAY0, (innerMinZ + innerMaxZ) / 2, aMaxX - aMinX, slabThickness, innerDepth, floorMat, true);
+            if (innerMaxX - aMinX > 0.3) {
+                addPart('floor2_main', (aMinX + innerMaxX) / 2, slabY, (innerMinZ + innerMaxZ) / 2,
+                    innerMaxX - aMinX, slabThickness, innerDepth, floorMat, true);
             }
-            // 板 B：洞 +Z 侧（洞上方从 holeMaxZ 到 innerMaxZ）
+            // 板 B：第一段洞口上方（+Z 侧），X 在楼梯带内
             const bMinZ = holeMaxZ;
-            const bMaxZ = innerMaxZ;
-            if (bMaxZ - bMinZ > 0.3 && holeMaxX - innerMinX > 0.3) {
-                addPart('floor2_corner', (innerMinX + holeMaxX) / 2, slabAY0, (bMinZ + bMaxZ) / 2, holeMaxX - innerMinX, slabThickness, bMaxZ - bMinZ, floorMat, true);
+            if (innerMaxZ - bMinZ > 0.3) {
+                addPart('floor2_over_run1', (holeMinX + Math.min(holeMaxX, innerMinX + stairW + 0.1)) / 2, slabY,
+                    (bMinZ + innerMaxZ) / 2,
+                    Math.min(holeMaxX, innerMinX + stairW + 0.1) - holeMinX,
+                    slabThickness, innerMaxZ - bMinZ, floorMat, true);
+            }
+            // 板 C：第二段洞口旁边（X 在 run2 带内但 Z 已过 run2 宽度）—— 若 holeMaxX 大于 stairW
+            // 主连通已由板 A 覆盖；此处补第一段条带右侧、第二段上方的角落
+            const cMinX = innerMinX + stairW + 0.1;
+            const cMaxX = Math.min(holeMaxX, run2HoleMaxX);
+            const cMinZ = run2HoleMaxZ;
+            const cMaxZ = holeMaxZ;
+            if (cMaxX - cMinX > 0.3 && cMaxZ - cMinZ > 0.3) {
+                addPart('floor2_corner_fill', (cMinX + cMaxX) / 2, slabY, (cMinZ + cMaxZ) / 2,
+                    cMaxX - cMinX, slabThickness, cMaxZ - cMinZ, floorMat, true);
             }
 
-            // === 第一段楼梯（贴 -X 墙，沿 +Z 上升）===
+            // === 第一段楼梯：贴 -X，朝 -Z 爬升（i=0 底部 / i=n-1 顶部接平台）===
             for (let i = 0; i < halfStepCount; i++) {
                 const stepTopY = y + actualHalfStepH * (i + 1);
-                const stepZPos = run1MinZ + i * stepD;
-                addPart(`stairs_a_${i}`, run1X, stepTopY - actualHalfStepH / 2, stepZPos, stairW, actualHalfStepH + 0.02, stepD + 0.04, trimMat, true);
+                // 从底部 Z 向 -Z 推进
+                const stepZPos = run1BottomZ - stepD / 2 - i * stepD;
+                addPart(`stairs_a_${i}`, run1X, stepTopY - actualHalfStepH / 2, stepZPos,
+                    stairW, actualHalfStepH + 0.02, stepD + 0.04, trimMat, true);
             }
 
-            // === 转角平台（在 -X -Z 角落，halfH 高度）===
-            const landingCenterX = innerMinX + landingSize / 2;
-            const landingCenterZ = innerMinZ + landingSize / 2;
-            addPart('stairs_landing', landingCenterX, y + halfH - 0.09, landingCenterZ, landingSize, 0.18, landingSize, floorMat, true);
+            // === 转角平台（-X -Z 墙角，第一段终点高度）===
+            addPart('stairs_landing', landingCenterX, y + halfH - 0.09, landingCenterZ,
+                landingSize, 0.18, landingSize, floorMat, true);
 
-            // === 第二段楼梯（贴 -Z 墙，沿 +X 上升）===
+            // === 第二段楼梯：贴 -Z，沿 +X 爬升到二楼 ===
             for (let i = 0; i < halfStepCount; i++) {
                 const stepTopY = y + halfH + actualHalfStepH * (i + 1);
-                const stepXPos = run2MinX + 0.2 + i * stepD;
-                addPart(`stairs_b_${i}`, stepXPos, stepTopY - actualHalfStepH / 2, run2Z, stepD + 0.04, actualHalfStepH + 0.02, stairW, trimMat, true);
+                const stepXPos = run2StartX + stepD / 2 + i * stepD;
+                addPart(`stairs_b_${i}`, stepXPos, stepTopY - actualHalfStepH / 2, run2Z,
+                    stepD + 0.04, actualHalfStepH + 0.02, stairW, trimMat, true);
             }
 
-            // === 楼梯外侧护栏立柱（每侧 5 根，跟随台阶爬升）===
+            // === 楼梯下方掩体箱（平台正下方，不挡通行）===
+            addPart('stair_crate_bot', landingCenterX + 0.35, y + 0.3, landingCenterZ + 0.35, 0.7, 0.6, 0.7, trimMat, true);
+            addPart('stair_crate_top', landingCenterX + 0.85, y + 0.75, landingCenterZ + 0.7, 0.7, 0.6, 0.7, trimMat, true);
+
+            // === 外侧护栏（第一段 +X 侧 / 第二段 +Z 侧）===
             const railH = 1.0;
             const postCount = 5;
-            // 第一段 +X 侧立柱（外侧）
             const rail1X = run1X + stairW / 2 + 0.04;
+            let pzPrev = null, pyPrev = null;
             for (let i = 0; i < postCount; i++) {
                 const t = i / (postCount - 1);
-                const postZ = run1MinZ + t * (firstRunLen - stepD / 2);
+                // 从底部到顶部：Z 递减，高度递增
+                const postZ = run1BottomZ - t * (firstRunLen - stepD / 2);
                 const stepIdx = Math.min(halfStepCount - 1, Math.floor(t * halfStepCount));
                 const postY = y + actualHalfStepH * (stepIdx + 1) + 0.45;
                 addPart(`post_a_${i}`, rail1X, postY, postZ, 0.06, 0.9, 0.06, trimMat, true);
+                if (pzPrev !== null) {
+                    const zMid = (pzPrev + postZ) / 2;
+                    const yMid = (pyPrev + postY) / 2;
+                    const seg = Math.abs(postZ - pzPrev) - 0.08;
+                    if (seg > 0.1) {
+                        addPart(`rail_a_lo_${i - 1}`, rail1X, yMid + 0.22, zMid, 0.05, 0.07, seg, trimMat, false);
+                        addPart(`rail_a_hi_${i - 1}`, rail1X, yMid + 0.52, zMid, 0.05, 0.08, seg, trimMat, false);
+                    }
+                }
+                pzPrev = postZ; pyPrev = postY;
             }
-            // 第二段 +Z 侧立柱（外侧）
             const rail2Z = run2Z + stairW / 2 + 0.04;
+            let pxPrev = null, pyPrev2 = null;
             for (let i = 0; i < postCount; i++) {
                 const t = i / (postCount - 1);
-                const postX = run2MinX + 0.2 + t * (secondRunLen - stepD / 2);
+                const postX = run2StartX + t * (secondRunLen - stepD / 2);
                 const stepIdx = Math.min(halfStepCount - 1, Math.floor(t * halfStepCount));
                 const postY = y + halfH + actualHalfStepH * (stepIdx + 1) + 0.45;
                 addPart(`post_b_${i}`, postX, postY, rail2Z, 0.06, 0.9, 0.06, trimMat, true);
+                if (pxPrev !== null) {
+                    const xMid = (pxPrev + postX) / 2;
+                    const yMid = (pyPrev2 + postY) / 2;
+                    const seg = Math.abs(postX - pxPrev) - 0.08;
+                    if (seg > 0.1) {
+                        addPart(`rail_b_lo_${i - 1}`, xMid, yMid + 0.22, rail2Z, seg, 0.07, 0.05, trimMat, false);
+                        addPart(`rail_b_hi_${i - 1}`, xMid, yMid + 0.52, rail2Z, seg, 0.08, 0.05, trimMat, false);
+                    }
+                }
+                pxPrev = postX; pyPrev2 = postY;
             }
 
-            // === 二楼地板开口边缘护栏（防止玩家从二楼踩空掉入楼梯井）===
-            addPart('floor2_hole_rail_x', holeMaxX + 0.03, y + floor2Y + railH / 2, (holeMinZ + holeMaxZ) / 2, 0.06, railH, holeMaxZ - holeMinZ, trimMat, true);
-            if (holeMaxZ < innerMaxZ - 0.1) {
-                addPart('floor2_hole_rail_z', (holeMinX + holeMaxX) / 2, y + floor2Y + railH / 2, holeMaxZ + 0.03, holeMaxX - holeMinX, railH, 0.06, trimMat, true);
-            }
+            // === 二楼洞口护栏 ===
+            // 第一段洞口 +X 边
+            addPart('floor2_hole_rail_x1', innerMinX + stairW + 0.04, y + floor2Y + railH / 2,
+                (run1TopZ + run1BottomZ) / 2, 0.06, railH, Math.max(0.5, run1BottomZ - run1TopZ), trimMat, true);
+            // 第二段洞口 +Z 边
+            addPart('floor2_hole_rail_z2', (run2StartX + run2EndX) / 2, y + floor2Y + railH / 2,
+                run2HoleMaxZ + 0.03, Math.max(0.5, run2EndX - run2StartX), railH, 0.06, trimMat, true);
+            // 洞口外角立柱
+            addPart('floor2_hole_post', run2HoleMaxX + 0.02, y + floor2Y + railH / 2, run2HoleMaxZ + 0.02,
+                0.08, railH, 0.08, trimMat, true);
 
-            // === 二楼前后墙开窗（在 floor2Y+0.55 以上）===
-            const sillH2 = floor2Y + 0.55;
-            const openingH2 = 1.1;
+            // === 二楼四面墙开窗（在一楼墙顶之上到屋顶）===
+            const f2WallH = Math.max(2.2, height - floor2Y);
+            const f2BaseY = y + floor2Y;
+            const sillH2 = 0.55;
+            const openingH2 = Math.min(1.25, Math.max(1.0, f2WallH * 0.48));
             const lintelY2 = sillH2 + openingH2;
-            const windowW2 = Math.min(Math.max(1.4, innerWidth * 0.35), 2.2);
+            const topH2 = Math.max(0.35, f2WallH - lintelY2);
+            const windowW2 = Math.min(Math.max(1.5, innerWidth * 0.38), 2.6);
+            const windowD2 = Math.min(Math.max(1.4, innerDepth * 0.34), 2.4);
             const wallSpanX = Math.min(width, innerWidth) - 0.1;
+            const wallSpanZ = Math.min(depth, innerDepth) - 0.1;
+
+            // 前后墙二楼窗
             for (const wallInfo of [
                 { suffix: 'front', wz: z + depth / 2 - wallThickness / 2 },
                 { suffix: 'back', wz: z - depth / 2 + wallThickness / 2 },
             ]) {
                 const wz = wallInfo.wz;
-                addPart(`f2_${wallInfo.suffix}_lower`, x, y + (floor2Y + sillH2) / 2, wz, wallSpanX, sillH2 - floor2Y, wallThickness * 0.95, wallMat, true);
-                addPart(`f2_${wallInfo.suffix}_upper`, x, y + (lintelY2 + height) / 2, wz, wallSpanX, height - lintelY2, wallThickness * 0.95, wallMat, true);
-                for (const sx of [-1, 1]) {
-                    addPart(`f2_${wallInfo.suffix}_side_${sx > 0 ? 'r' : 'l'}`, x + sx * (windowW2 / 2 + 0.05), y + (sillH2 + lintelY2) / 2, wz, 0.1, openingH2, wallThickness * 0.95, wallMat, true);
-                }
-                const pane = addPart(`f2_${wallInfo.suffix}_glass`, x, y + (sillH2 + lintelY2) / 2, wz, windowW2 * 0.94, openingH2 * 0.92, 0.03, glassMat, false);
+                const sideW = Math.max(0.25, (wallSpanX - windowW2) / 2);
+                // 窗台下
+                addPart(`f2_${wallInfo.suffix}_sill`, x, f2BaseY + sillH2 / 2, wz, wallSpanX, sillH2, wallThickness * 0.95, wallMat, true);
+                // 左右侧
+                addPart(`f2_${wallInfo.suffix}_side_l`, x - windowW2 / 2 - sideW / 2, f2BaseY + sillH2 + openingH2 / 2, wz, sideW, openingH2, wallThickness * 0.95, wallMat, true);
+                addPart(`f2_${wallInfo.suffix}_side_r`, x + windowW2 / 2 + sideW / 2, f2BaseY + sillH2 + openingH2 / 2, wz, sideW, openingH2, wallThickness * 0.95, wallMat, true);
+                // 门楣上
+                addPart(`f2_${wallInfo.suffix}_upper`, x, f2BaseY + lintelY2 + topH2 / 2, wz, wallSpanX, topH2, wallThickness * 0.95, wallMat, true);
+                // 玻璃 + 框
+                const pane = addPart(`f2_${wallInfo.suffix}_glass`, x, f2BaseY + sillH2 + openingH2 / 2, wz, windowW2 * 0.94, openingH2 * 0.92, 0.03, glassMat, false);
                 markGlass(pane);
-                addPart(`f2_${wallInfo.suffix}_frame_low`, x, y + sillH2 + 0.02, wz, windowW2 + 0.16, 0.06, wallThickness * 0.7, trimMat, false);
-                addPart(`f2_${wallInfo.suffix}_frame_high`, x, y + lintelY2 - 0.02, wz, windowW2 + 0.16, 0.06, wallThickness * 0.7, trimMat, false);
+                addPart(`f2_${wallInfo.suffix}_frame_low`, x, f2BaseY + sillH2 + 0.02, wz, windowW2 + 0.16, 0.06, wallThickness * 0.7, trimMat, false);
+                addPart(`f2_${wallInfo.suffix}_frame_high`, x, f2BaseY + lintelY2 - 0.02, wz, windowW2 + 0.16, 0.06, wallThickness * 0.7, trimMat, false);
+                addPart(`f2_${wallInfo.suffix}_frame_l`, x - windowW2 / 2 - 0.05, f2BaseY + sillH2 + openingH2 / 2, wz, 0.08, openingH2, wallThickness * 0.7, trimMat, false);
+                addPart(`f2_${wallInfo.suffix}_frame_r`, x + windowW2 / 2 + 0.05, f2BaseY + sillH2 + openingH2 / 2, wz, 0.08, openingH2, wallThickness * 0.7, trimMat, false);
             }
 
-            // === 二楼家具（6 件，放置在二楼主地板区域）===
+            // 左右墙二楼窗
+            for (const wallInfo of [
+                { suffix: 'left', wx: x - width / 2 + wallThickness / 2 },
+                { suffix: 'right', wx: x + width / 2 - wallThickness / 2 },
+            ]) {
+                const wx = wallInfo.wx;
+                const sideD = Math.max(0.25, (wallSpanZ - windowD2) / 2);
+                addPart(`f2_${wallInfo.suffix}_sill`, wx, f2BaseY + sillH2 / 2, z, wallThickness * 0.95, sillH2, wallSpanZ, wallMat, true);
+                addPart(`f2_${wallInfo.suffix}_side_b`, wx, f2BaseY + sillH2 + openingH2 / 2, z - windowD2 / 2 - sideD / 2, wallThickness * 0.95, openingH2, sideD, wallMat, true);
+                addPart(`f2_${wallInfo.suffix}_side_f`, wx, f2BaseY + sillH2 + openingH2 / 2, z + windowD2 / 2 + sideD / 2, wallThickness * 0.95, openingH2, sideD, wallMat, true);
+                addPart(`f2_${wallInfo.suffix}_upper`, wx, f2BaseY + lintelY2 + topH2 / 2, z, wallThickness * 0.95, topH2, wallSpanZ, wallMat, true);
+                const pane = addPart(`f2_${wallInfo.suffix}_glass`, wx, f2BaseY + sillH2 + openingH2 / 2, z, 0.03, openingH2 * 0.92, windowD2 * 0.94, glassMat, false);
+                markGlass(pane);
+                addPart(`f2_${wallInfo.suffix}_frame_low`, wx, f2BaseY + sillH2 + 0.02, z, wallThickness * 0.7, 0.06, windowD2 + 0.16, trimMat, false);
+                addPart(`f2_${wallInfo.suffix}_frame_high`, wx, f2BaseY + lintelY2 - 0.02, z, wallThickness * 0.7, 0.06, windowD2 + 0.16, trimMat, false);
+            }
+
+            // === 二楼家具（放在主地板区域，避开 L 形洞口）===
             const f2y = y + floor2Y + 0.09;
             const furnCenterX = (holeMaxX + innerMaxX) / 2;
-            const furnCenterZ = (innerMinZ + innerMaxZ) / 2;
-            addPart('f2_bed', furnCenterX - 2.5, f2y + 0.35, furnCenterZ + 1.5, 1.4, 0.7, 2.0, trimMat, true);
-            addPart('f2_desk', furnCenterX + 2.5, f2y + 0.38, furnCenterZ - 1.5, 1.8, 0.76, 0.9, trimMat, true);
-            addPart('f2_desk_top', furnCenterX + 2.5, f2y + 0.76, furnCenterZ - 1.5, 1.85, 0.06, 0.95, trimMat, false);
-            addPart('f2_sofa', furnCenterX + 2.5, f2y + 0.35, furnCenterZ + 1.0, 1.8, 0.7, 0.7, trimMat, true);
-            addPart('f2_shelf', furnCenterX - 2.5, f2y + 0.75, furnCenterZ - 1.5, 1.0, 1.5, 0.4, trimMat, true);
+            const furnCenterZ = (holeMaxZ + innerMaxZ) / 2;
+            addPart('f2_bed', furnCenterX - 1.8, f2y + 0.35, furnCenterZ + 1.2, 1.4, 0.7, 2.0, trimMat, true);
+            addPart('f2_desk', furnCenterX + 1.8, f2y + 0.38, furnCenterZ - 0.8, 1.8, 0.76, 0.9, trimMat, true);
+            addPart('f2_desk_top', furnCenterX + 1.8, f2y + 0.76, furnCenterZ - 0.8, 1.85, 0.06, 0.95, trimMat, false);
+            addPart('f2_sofa', furnCenterX + 1.8, f2y + 0.35, furnCenterZ + 1.0, 1.8, 0.7, 0.7, trimMat, true);
+            addPart('f2_shelf', furnCenterX - 1.8, f2y + 0.75, furnCenterZ - 0.8, 1.0, 1.5, 0.4, trimMat, true);
             addPart('f2_crate', furnCenterX, f2y + 0.45, furnCenterZ, 0.9, 0.9, 0.9, trimMat, true);
         }
 
@@ -1281,7 +1656,77 @@ export class ObstacleSystem {
         group.add(eave);
         this.meshes.push(eave);
 
+        // === 外墙焦痕贴片（视觉战损，collidable=false 不参与碰撞/寻路）===
+        this._deployDamageDecals(group, x, z, width, depth, height, variantSeed);
+
+        // 远处隐藏室内家具、楼梯细节、窗框与护栏，碰撞盒仍保留。
+        // 这些小 Mesh 数量很多，是二楼建筑加入后 draw call 上升的主要来源。
+        const detailMeshes = [];
+        const detailPrefixes = [
+            'interior_', 'stairs_', 'stair_', 'post_', 'rail_',
+            'floor2_hole_', 'f2_bed', 'f2_desk', 'f2_sofa', 'f2_shelf',
+            'f2_crate', 'f2_front_frame', 'f2_back_frame',
+            'f2_left_frame', 'f2_right_frame'
+        ];
+        group.traverse(child => {
+            if (!child.isMesh) return;
+            const part = child.userData?.buildingPart || child.name || '';
+            if (detailPrefixes.some(prefix => part.startsWith(prefix))) detailMeshes.push(child);
+        });
+        if (detailMeshes.length > 0) {
+            this._buildingLodEntries.push({ x, z, detailMeshes, detailed: true });
+        }
+
         return group;
+    }
+
+    // 在建筑外墙外侧随机贴 1-3 片炮弹焦痕（纯视觉，不影响弹道/寻路）
+    _deployDamageDecals(group, bx, bz, width, depth, height, seed) {
+        const n = seed < 0.25 ? 1 : (seed < 0.7 ? 2 : 3);
+        const mat = new THREE.MeshBasicMaterial({
+            color: 0x1a1713,
+            transparent: true,
+            opacity: 0.55,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+        });
+        // 每个焦痕：墙面作为 +Z 朝向的面片，再用 lookAt 旋转到正确的墙面方向
+        const halfW = width / 2, halfD = depth / 2;
+        for (let i = 0; i < n; i++) {
+            const face = (seed * 7 + i * 3) % 4;
+            const u = ((seed * 13 + i * 5) % 100) / 100;          // 沿面偏移 0-1
+            const v = 0.35 + ((seed * 11 + i * 7) % 60) / 100;    // 高度 0.35-0.95
+            const s = 0.6 + ((seed * 17 + i * 11) % 40) / 100;    // 0.6-1.0 尺寸
+
+            const burnGeo = new THREE.CircleGeometry(s * 0.5, 9);
+            const decal = new THREE.Mesh(burnGeo, mat);
+            decal.userData.buildingPart = 'scorch';
+
+            // 定焦痕在墙面的坐标与墙外法线方向
+            let pos, normal;
+            if (face === 0 || face === 2) {
+                // px / nx 侧壁
+                const dz = (u - 0.5) * depth * 0.7;
+                const side = face === 0 ? 1 : -1;
+                pos = new THREE.Vector3(side * (halfW + 0.03), v * height, dz);
+                normal = new THREE.Vector3(side, 0, 0);
+            } else {
+                // pz / nz 侧壁
+                const dx = (u - 0.5) * width * 0.7;
+                const side = face === 1 ? 1 : -1;
+                pos = new THREE.Vector3(dx, v * height, side * (halfD + 0.03));
+                normal = new THREE.Vector3(0, 0, side);
+            }
+            decal.position.copy(pos);
+            // 面片默认法线 +Z，lookAt 令其朝向墙外法线，再绕自身轴随机转
+            const lookTarget = new THREE.Vector3().copy(pos).add(normal);
+            decal.lookAt(lookTarget);
+            decal.rotateZ(Math.random() * Math.PI);
+            // 轻微拉成椭圆焦痕，更自然
+            decal.scale.set(1.25, 1.0, 1.0);
+            group.add(decal);
+            this.meshes.push(decal);
+        }
     }
 
     _getFootprintPlatformHeight(x, z, width, depth, terrain) {

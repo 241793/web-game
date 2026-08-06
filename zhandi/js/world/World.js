@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { Terrain } from './Terrain.js?v=20260801.2';
-import { ObstacleSystem } from './Obstacles.js?v=20260802.1';
-import { createProceduralTexture } from '../utils/VisualAssets.js?v=20260801.2';
-import { CONFIG } from '../config.js?v=20260801.2';
+import { Terrain } from './Terrain.js?v=20260802.3';
+import { ObstacleSystem } from './Obstacles.js?v=20260806.2';
+import { createProceduralTexture } from '../utils/VisualAssets.js?v=20260802.3';
+import { CONFIG } from '../config.js?v=20260806.2';
 
 // 世界管理器 - 管理场景、地形、障碍物、据点
 export class World {
@@ -16,6 +16,7 @@ export class World {
         this.obstacles = new ObstacleSystem(scene);
         this.capturePoints = [];
         this.vehicles = [];  // 载具生成点
+        this.staticGuns = []; // 固定防空炮台
         this.teamSpawnPoints = { 0: [], 1: [] };
         this.strategicObjectives = [];
         this.lights = [];
@@ -29,11 +30,85 @@ export class World {
         this.obstacles.generateMap(this.terrain, this.mapConfig);
         this._createVegetation();
         this._createWater();
+        this._createWeatherSnow();
+        this._addVolcanicGlow();
         this.strategicObjectives = this.obstacles.getStrategicObjectives ? this.obstacles.getStrategicObjectives() : [];
         this._createCapturePoints();
         this._createTeamSpawnPoints();
         this._createVehicleSpawns();
         this._resolveVehicleSpawnCollisions();
+        this._createStaticGuns();
+    }
+
+    // 生成固定防空炮台（地图自带，非兵种装备）
+    _createStaticGuns() {
+        const area0 = this.mapConfig?.spawnAreas?.[0]?.center;
+        const area1 = this.mapConfig?.spawnAreas?.[1]?.center;
+        // 每方基地附近一座防空炮
+        const spots = [];
+        if (area0) spots.push({ x: area0.x + 12, z: area0.z + 10, team: 0, yaw: -0.6 });
+        if (area1) spots.push({ x: area1.x - 12, z: area1.z - 10, team: 1, yaw: 2.6 });
+        // 无出生区配置时用默认坐标
+        if (spots.length === 0) {
+            spots.push({ x: -104, z: -118, team: 0, yaw: -0.6 });
+            spots.push({ x: 104, z: 118, team: 1, yaw: 2.6 });
+        }
+
+        for (const s of spots) {
+            const y = this.terrain.getHeight ? this.terrain.getHeight(s.x, s.z) : 0;
+            const mesh = this._buildStaticGunMesh(s.x, y, s.z);
+            const turret = mesh.userData.turretGroup;
+            const gun = {
+                position: new THREE.Vector3(s.x, y, s.z),
+                team: s.team,
+                yaw: s.yaw,
+                pitch: 0.2,
+                mesh,
+                turretGroup: turret,
+                muzzle: new THREE.Vector3(s.x, y + 1.2, s.z),
+                cooldown: 0,
+                fireRate: 200,     // 发/分钟
+                damage: 40,
+                range: 220,
+                alive: true,
+            };
+            this.staticGuns.push(gun);
+        }
+    }
+
+    _buildStaticGunMesh(x, y, z) {
+        const group = new THREE.Group();
+        const matBase = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.5 });
+        const matDark = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7 });
+
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.7, 0.5, 12), matDark);
+        base.position.y = 0.25;
+        base.castShadow = true;
+        group.add(base);
+
+        const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.42, 0.9, 10), matBase);
+        pedestal.position.y = 0.95;
+        pedestal.castShadow = true;
+        group.add(pedestal);
+
+        // 可旋转炮塔：双联炮管
+        const turret = new THREE.Group();
+        turret.position.y = 1.4;
+        for (const sx of [-0.16, 0.16]) {
+            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.6, 10), matDark);
+            barrel.rotation.x = Math.PI / 2;
+            barrel.position.set(sx, 0, -0.7);
+            turret.add(barrel);
+        }
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), matBase);
+        seat.position.y = 0.25;
+        turret.add(seat);
+        group.add(turret);
+        group.userData.turretGroup = turret;
+
+        group.position.set(x, y, z);
+        this.scene.add(group);
+        return group;
     }
 
     _setupLighting() {
@@ -78,8 +153,8 @@ export class World {
             sun.shadow.camera.bottom = -d;
             sun.shadow.camera.near = 20;
             sun.shadow.camera.far = 360;
-            sun.shadow.bias = -0.0004;
-            sun.shadow.normalBias = 0.06;
+            sun.shadow.bias = -0.00025;
+            sun.shadow.normalBias = 0.08;
         }
         this.scene.add(sun);
         this.scene.add(sun.target);
@@ -93,6 +168,16 @@ export class World {
         fillLight.position.set(-this.sunDirection.x * 120, 55, -this.sunDirection.z * 120);
         this.scene.add(fillLight);
         this.lights.push(fillLight);
+
+        // 低角度暖色氛围补光：给暗部一点点暖色，让阴影朝向面不至于死黑
+        const mood = new THREE.DirectionalLight(0xffe0b8, tc.moodIntensity ?? 0.12);
+        mood.position.set(
+            this.sunDirection.x * 40,
+            this.sunDirection.y * 8,
+            this.sunDirection.z * 40
+        );
+        this.scene.add(mood);
+        this.lights.push(mood);
 
         // 雾：颜色跟随地图配置（可被地图覆盖距离）
         const fogNear = tc.fogNear ?? CONFIG.WORLD.fogNear ?? 55;
@@ -215,20 +300,32 @@ export class World {
                     float halo = pow(sunDot, 240.0) * 0.55 + pow(sunDot, 12.0) * 0.14;
                     col += sunColor * (disc * 1.6 + halo);
 
+                    // 地平线大气带：太阳一侧偏暖，背侧偏紫，增强纵深
+                    float horizonBand = pow(1.0 - h, 3.0) * smoothstep(0.02, 0.32, h);
+                    vec3 horizonTint = mix(
+                        vec3(0.72, 0.55, 0.42),
+                        vec3(0.55, 0.5, 0.68),
+                        smoothstep(0.0, 1.0, sunDot * 0.5 + 0.5)
+                    );
+                    col += horizonTint * horizonBand * 0.35;
+
                     // 云层（平面投影 + fbm，随时间漂移）
                     if (dir.y > 0.015) {
                         vec2 uv = dir.xz / (dir.y + 0.14) * 1.35;
                         uv += vec2(time * 0.012, time * 0.004);
                         float f = fbm(uv);
                         float cov = 1.0 - cloudCover;
+                        // 云内部自阴影凹凸：让云有厚度/立体感而非平面剪影
+                        float relief = fbm(uv * 1.9 + 3.1);
                         float cloud = smoothstep(cov - 0.08, cov + 0.24, f);
+                        cloud *= 0.72 + 0.55 * smoothstep(0.2, 0.8, relief);
                         // 云底稍暗，被太阳照亮的一侧偏暖
-                        float shade = fbm(uv * 1.9 + 3.1);
+                        float shade = relief;
                         vec3 cloudCol = mix(vec3(0.72, 0.74, 0.78), vec3(1.04, 1.02, 0.99), shade);
                         cloudCol += sunColor * pow(sunDot, 5.0) * 0.22;
                         // 地平线处云淡出
                         float horizonFade = smoothstep(0.015, 0.16, dir.y);
-                        col = mix(col, cloudCol, cloud * horizonFade * 0.88);
+                        col = mix(col, cloudCol, cloud * horizonFade * 0.9);
                     }
 
                     gl_FragColor = vec4(col, 1.0);
@@ -244,7 +341,7 @@ export class World {
         this._skyMat = skyMat;
     }
 
-    // 每帧更新：云漂移、水面波动、阴影相机跟随
+    // 每帧更新：云漂移、水面波动、阴影相机跟随、天气/熔岩
     update(dt, playerPosition = null) {
         if (this._skyMat) {
             this._skyMat.uniforms.time.value += dt;
@@ -252,6 +349,9 @@ export class World {
         if (this._waterMat) {
             this._waterMat.uniforms.time.value += dt;
         }
+        if (this._snowTime === undefined) this._snowTime = 0;
+        this._snowTime += dt;
+        this._updateWeather(dt, playerPosition);
         if (playerPosition) {
             this.updateShadowTarget(playerPosition);
         }
@@ -412,6 +512,108 @@ export class World {
         this._waterMesh = water;
         this._waterMat = mat;
         this.waterLevel = water.position.y;
+    }
+
+    // 阿登森林降雪粒子：Points，低重力下落 + 横向漂移，环绕重生
+    _createWeatherSnow() {
+        if (this.mapId !== 'ardennes') return;
+        const count = 1200;
+        const snowTex = createProceduralTexture('metal', {
+            baseColor: 0xffffff, accentColor: 0xffffff, detailColor: 0xffffff,
+            size: 32, repeatX: 1, repeatY: 1, anisotropy: 1,
+        });
+        const geo = new THREE.BufferGeometry();
+        const positions = new Float32Array(count * 3);
+        const speeds = new Float32Array(count);
+        const wind = new Float32Array(count);
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] = (Math.random() - 0.5) * 160;
+            positions[i * 3 + 1] = 4 + Math.random() * 30;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 160;
+            speeds[i] = 1.2 + Math.random() * 1.8;
+            wind[i] = 0.6 + Math.random() * 0.8;
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const mat = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.18,
+            map: snowTex,
+            transparent: true,
+            opacity: 0.85,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+        });
+        const points = new THREE.Points(geo, mat);
+        points.name = 'snow';
+        points.userData.noShadow = true;
+        this.scene.add(points);
+        this._snow = { points, positions, speeds, wind };
+    }
+
+    // 硫磺岛火山口熔岩发光：静态 emissive 假熔岩 + LightPool 周期性红光
+    _addVolcanicGlow() {
+        const volcano = this.mapConfig.capturePoints?.find(p => p.id === 'D');
+        if (this.mapId !== 'iwojima' || !volcano) return;
+
+        const y = this.terrain.getMeshHeight ? this.terrain.getMeshHeight(volcano.x, volcano.z) : 0;
+        const glowMat = new THREE.MeshBasicMaterial({
+            color: 0xff3a10,
+            transparent: true,
+            opacity: 0.55,
+            depthWrite: false,
+        });
+        // 熔岩锥（火山口上方微弱发光体，不发射点光）
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(2.2, 0.8, 10, 1), glowMat);
+        cone.position.set(volcano.x, y + 1.2, volcano.z);
+        cone.name = 'volcano_glow';
+        cone.userData.noShadow = true;
+        this.scene.add(cone);
+        this._volcanoCone = cone;
+        this._volcanoX = volcano.x;
+        this._volcanoY = y;
+        this._volcanoZ = volcano.z;
+        this._volcanoPulse = 0;
+    }
+
+    // 每帧：降雪粒子下落 + 火山熔岩脉冲（用 LightPool.flash）
+    _updateWeather(dt, playerPosition) {
+        if (this._snow) {
+            const { points, positions, speeds, wind } = this._snow;
+            const arr = positions;
+            const st = this._snowTime || 0;
+            for (let i = 0; i < speeds.length; i++) {
+                arr[i * 3 + 1] -= speeds[i] * dt;
+                arr[i * 3] += Math.sin(st * 0.8 + i * 0.6) * dt * wind[i];
+                arr[i * 3 + 2] += Math.cos(st * 0.7 + i * 0.5) * dt * wind[i] * 0.8;
+                // 落到地面以下则环绕到顶部
+                if (arr[i * 3 + 1] < 0.5) {
+                    arr[i * 3 + 1] = 24 + Math.random() * 10;
+                    arr[i * 3] = (Math.random() - 0.5) * 160;
+                    arr[i * 3 + 2] = (Math.random() - 0.5) * 160;
+                }
+            }
+            points.geometry.attributes.position.needsUpdate = true;
+            // 粒子系统跟随相机水平位置，保证始终在可见范围
+            if (playerPosition) {
+                points.position.x = playerPosition.x;
+                points.position.z = playerPosition.z;
+            }
+        }
+        if (this._volcanoCone) {
+            const lightPool = this.scene.userData?.lightPool;
+            this._volcanoPulse += dt;
+            const t = this._volcanoPulse;
+            const breathe = 0.5 + 0.5 * Math.sin(t * 1.5);
+            this._volcanoCone.scale.setScalar(1 + breathe * 0.6);
+            this._volcanoCone.material.opacity = 0.3 + breathe * 0.4;
+            // 周期性微弱红光（每 ~2s），走 LightPool 纪律
+            if (lightPool && Math.sin(t * Math.PI) > 0.86) {
+                lightPool.flash(
+                    new THREE.Vector3(this._volcanoX, this._volcanoY + 3, this._volcanoZ),
+                    0xff3a10, 3.2, 18, 0.35
+                );
+            }
+        }
     }
 
     _createCapturePoints() {

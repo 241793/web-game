@@ -58,6 +58,13 @@ export const CONFIG = {
         downedReviveHealth: 45,     // 被复活后血量
         skipHoldTime: 1.5,          // 长按空格跳过所需时间
         skipBleedOutAccelerate: 3,  // 长按空格时bleedOut加速倍率
+        // 近战（F 键，无交互目标时）
+        meleeDamage: 55,
+        meleeRange: 2.35,
+        meleeAngle: 0.95,           // 前方扇形半角(弧度) ~54°
+        meleeDuration: 0.42,        // 挥砍动画时长
+        meleeHitTime: 0.18,         // 命中判定时刻
+        meleeCooldown: 0.55,        // 攻击间隔
     },
 
     // 武器
@@ -748,6 +755,8 @@ export const CONFIG = {
             staminaDiscount: 0.3,
             // 可选武器
             weaponOptions: ['M416', 'AK12', 'SCAR_H', 'M249', 'STG44'],
+            // 特殊装备槽（原作风格反甲突击）
+            special: 'hedgehog',
         },
         medic: {
             name: '医疗兵',
@@ -772,6 +781,8 @@ export const CONFIG = {
             vehicleDamageBonus: 0.3,
             // 可选武器
             weaponOptions: ['M870', 'UMP45', 'AK12', 'BAR', 'Panzerschreck'],
+            // 专属：曲射迫击炮
+            special: 'mortar',
         },
         sniper: {
             name: '狙击手',
@@ -784,6 +795,68 @@ export const CONFIG = {
             holdBreathBonus: 2.0,
             // 可选武器
             weaponOptions: ['L96', 'M40A5', 'SKS', 'Kar98k', 'M1Garand'],
+            // 侦察兵主要依赖传感器标记
+            special: null,
+        },
+        support: {
+            name: '支援兵',
+            primary: 'M249',
+            secondary: 'P226',
+            gadget: 'ammobag',
+            maxHealth: 115,
+            maxArmor: 120,
+            // 支援兵被动：压制抗性
+            suppressionResist: 0.4,
+            weaponOptions: ['M249', 'MG42', 'BAR', 'UMP45'],
+            // 专属：反坦克地雷
+            special: 'atmine',
+        },
+    },
+
+    // 特殊装备（刺雷/地雷/迫击炮等）
+    SPECIALS: {
+        hedgehog: {
+            name: '刺雷',
+            type: 'charge',          // 手持冲锋：向前冲刺，撞到目标爆炸
+            damage: 300,             // 巨大反甲爆炸
+            selfDamage: 200,         // 自己也受重创（战地原版自杀式）
+            radius: 6,
+            chargeSpeed: 12.5,       // 冲锋速度（m/s）
+            chargeDuration: 2.2,     // 冲锋持续时间
+            cooldown: 10,
+            antiVehicle: true,
+            description: '手持刺雷向前冲锋，撞到敌人/载具爆炸，自身也受重创',
+        },
+        atmine: {
+            name: '反坦克地雷',
+            type: 'placeable',
+            damage: 280,
+            radius: 5,
+            triggerRadius: 1.5,
+            armingTime: 1.5,
+            cooldown: 12,
+            maxActive: 3,
+            antiVehicle: true,
+            description: '部署后自动引爆经过的载具',
+        },
+        mortar: {
+            name: '迫击炮',
+            type: 'mortar',          // 部署在地上 + 地图选点打击
+            damage: 140,
+            radius: 7,
+            ammo: 6,                 // 每座迫击炮弹药数
+            range: 90,
+            arc: 0.9,                // 弹道弧度
+            cooldown: 4,
+            description: '部署迫击炮，地图选点曲射打击',
+        },
+        sandbag: {
+            name: '沙袋掩体',
+            type: 'placeable',
+            cooldown: 6,
+            duration: 90,
+            maxActive: 3,
+            description: '快速堆叠沙袋作为掩体',
         },
     },
 
@@ -1134,7 +1207,7 @@ export const CONFIG = {
             matchDuration: 900,
             teamScoreLimit: 1000,
             supportsStrategicObjectives: true,
-            enabledMaps: ['default', 'ardennes', 'normandy', 'iwojima'],
+            enabledMaps: ['default', 'ardennes', 'normandy', 'iwojima', 'stalingrad'],
         },
         attrition: {
             id: 'attrition',
@@ -1148,7 +1221,7 @@ export const CONFIG = {
             matchDuration: 600,
             teamScoreLimit: 9999,
             supportsStrategicObjectives: false,
-            enabledMaps: ['default', 'ardennes'],
+            enabledMaps: ['default', 'ardennes', 'stalingrad'],
         },
         breakthrough: {
             id: 'breakthrough',
@@ -1166,6 +1239,37 @@ export const CONFIG = {
             sectors: 3,
             capturePerSector: 1,
             capturePointTime: 30,
+            attackerTeam: 0,
+        },
+        tdm: {
+            id: 'tdm',
+            name: '团队死斗',
+            description: '纯击杀消耗票数，据点仅作战术掩体',
+            startingTickets: 100,
+            ticketBleedRate: 0,
+            capturePointPoints: 0,
+            capturePointBonus: 0,
+            deathTicketCost: 1,
+            matchDuration: 600,
+            teamScoreLimit: 9999,
+            supportsStrategicObjectives: false,
+            enabledMaps: ['default', 'ardennes', 'stalingrad'],
+        },
+        rush: {
+            id: 'rush',
+            name: '抢攻',
+            description: '攻方依次爆破 M-COM，守方拆除炸药',
+            startingTickets: 120,
+            ticketBleedRate: 0,
+            capturePointPoints: 0,
+            capturePointBonus: 0,
+            deathTicketCost: 1,
+            matchDuration: 900,
+            teamScoreLimit: 9999,
+            supportsStrategicObjectives: false,
+            enabledMaps: ['normandy', 'iwojima', 'default', 'stalingrad'],
+            sectors: 3,
+            fuseDuration: 40,
             attackerTeam: 0,
         },
     },
@@ -1403,6 +1507,66 @@ export const CONFIG = {
             },
             obstacles: { buildings: 10, walls: 20, sandbags: 35, crates: 25, trees: 30 },
         },
+        stalingrad: {
+            id: 'stalingrad',
+            name: '斯大林格勒',
+            description: '废墟巷战与近距离据点争夺',
+            size: 400,
+            terrain: {
+                seed: 1942,
+                frequency: 0.02,
+                baseHeight: 0,
+                hillHeight: 7,
+                mountainHeight: 11,
+                groundColor: 0x6a655c,
+                fogColor: 0x8a8e92,
+                skyColor: 0x8a9aaa,
+                cloudCover: 0.7,
+                sunColor: 0xffe8c8,
+                sunIntensity: 2.4,
+                sunElevation: 0.42,
+                sunAzimuth: 0.55,
+                toneMappingExposure: 1.4,
+                ambientIntensity: 0.68,
+                hemisphereIntensity: 1.05,
+                hemisphereGroundColor: 0x5a564c,
+                fillIntensity: 0.36,
+                horizonBrightness: 0.14,
+                fogNear: 40,
+                fogFar: 260,
+                grassDensity: 280,
+                grassColor: 0x5a6248,
+            },
+            environment: {
+                theme: 'urban_ruin',
+                captureDetailDensity: 1.2,
+                distantPropCount: 56,
+            },
+            capturePoints: [
+                { id: 'A', name: 'A', x: -70, z: -70, label: '火车站', radius: 12 },
+                { id: 'B', name: 'B', x: 0, z: 0, label: '中央广场', radius: 14 },
+                { id: 'C', name: 'C', x: 70, z: 70, label: '工厂废墟', radius: 12 },
+                { id: 'D', name: 'D', x: -50, z: 60, label: '公寓楼', radius: 11 },
+                { id: 'E', name: 'E', x: 50, z: -60, label: '弹药库', radius: 11 },
+            ],
+            strategicObjectives: [
+                { id: 'friendly_fuel', type: 'fuel', x: -80, z: -95, health: 220, ticketDamage: 25, scoreValue: 25 },
+                { id: 'enemy_fuel', type: 'fuel', x: 80, z: 95, health: 220, ticketDamage: 25, scoreValue: 25 },
+            ],
+            vehicleSpawns: [
+                { type: 'jeep', x: -85, z: -100, team: 0, yaw: 0.4 },
+                { type: 'tank', x: -90, z: -95, team: 0, yaw: 0.3 },
+                { type: 'armedjeep', x: -78, z: -105, team: 0, yaw: 0.5 },
+                { type: 'jeep', x: 85, z: 100, team: 1, yaw: -0.4 },
+                { type: 'tank', x: 90, z: 95, team: 1, yaw: -0.3 },
+                { type: 'armedjeep', x: 78, z: 105, team: 1, yaw: -0.5 },
+            ],
+            spawnAreas: {
+                0: { center: { x: -90, z: -105 }, radius: 14 },
+                1: { center: { x: 90, z: 105 }, radius: 14 },
+            },
+            obstacles: { buildings: 28, walls: 36, sandbags: 45, crates: 50, trees: 12 },
+        },
     },
 
     FORTIFICATIONS: {
@@ -1461,33 +1625,5 @@ export const CONFIG = {
     TEAMS: {
         friendly: { id: 0, name: '我方', color: 0x0088ff, markerColor: 0x00aaff },
         enemy: { id: 1, name: '敌方', color: 0xff3300, markerColor: 0xff4444 },
-    },
-};
-
-// 兵种武器配置
-export const CLASS_LOADOUTS = {
-    assault: {
-        name: '突击兵',
-        weapons: ['M416', 'P226'],
-        gadget: { type: 'ammobag', count: 99, name: '弹药包' },
-        passive: '冲刺耐力增强',
-    },
-    medic: {
-        name: '医疗兵',
-        weapons: ['MP5', 'P226'],
-        gadget: { type: 'medbag', count: 99, name: '医疗包' },
-        passive: '自动回血',
-    },
-    engineer: {
-        name: '工程兵',
-        weapons: ['M870', 'RPG'],
-        gadget: { type: 'repairtool', count: 99, name: '维修工具' },
-        passive: '反甲专家',
-    },
-    sniper: {
-        name: '狙击手',
-        weapons: ['L96', 'MP443'],
-        gadget: { type: 'sensor', count: 2, name: '运动传感器' },
-        passive: '屏息稳定',
     },
 };
