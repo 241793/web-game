@@ -1,1 +1,174 @@
-1
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Terraria · Web Edition</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 启动菜单 -->
+  <div id="menu" class="screen">
+    <div class="menu-bg"></div>
+    <div class="menu-vignette"></div>
+    <div class="menu-content">
+      <h1 class="title">
+        <span class="t-t">TERRARIA</span>
+        <span class="t-sub">WEB EDITION</span>
+      </h1>
+      <div class="version">v1.1 · 像素致敬版</div>
+
+      <!-- 难度选择 -->
+      <div class="diff-block">
+        <div class="diff-title">选择游戏模式</div>
+        <div class="diff-row" id="diff-row">
+          <button type="button" class="diff-btn active" data-diff="classic">
+            <span class="diff-icon">⚔</span>
+            <span class="diff-name">经典模式</span>
+            <span class="diff-tag">推荐入门</span>
+            <span class="diff-desc">敌怪与 Boss 标准数值<br>死亡失去 50% 金币</span>
+          </button>
+          <button type="button" class="diff-btn" data-diff="expert">
+            <span class="diff-icon">🔥</span>
+            <span class="diff-name">专家模式</span>
+            <span class="diff-tag hard">高难</span>
+            <span class="diff-desc">敌怪伤害 / 血量 ×1.75<br>死亡失去 75% 金币</span>
+          </button>
+          <button type="button" class="diff-btn" data-diff="master">
+            <span class="diff-icon">☠</span>
+            <span class="diff-name">大师模式</span>
+            <span class="diff-tag hell">极难</span>
+            <span class="diff-desc">敌怪伤害 / 血量 ×2.5<br>死亡失去全部金币</span>
+          </button>
+        </div>
+        <div class="diff-hint" id="diff-hint">当前：经典 · 适合熟悉操作与探索</div>
+      </div>
+
+      <nav class="menu-buttons">
+        <button id="btn-continue" class="mc-btn">继续游戏</button>
+        <button id="btn-start"  class="mc-btn">新游戏</button>
+        <button id="btn-howto"  class="mc-btn">操作说明</button>
+        <button id="btn-credit" class="mc-btn">关于本作</button>
+      </nav>
+      <div id="howto" class="panel hidden">
+        <h2>操作说明</h2>
+        <ul>
+          <li><b>A / D</b> 或 <b>← / →</b> 移动</li>
+          <li><b>空格 / W</b> 跳跃</li>
+          <li><b>鼠标左键</b> 挖掘 / 攻击 · 距离内自动选目标</li>
+          <li><b>鼠标右键</b> 放置选中方块</li>
+          <li><b>1–8 / 滚轮</b> 切换 Hotbar</li>
+          <li><b>E</b> 背包 · 左键装快捷栏 · 右键使用/穿戴 · <b>T</b> 丢弃</li>
+          <li><b>B</b> 成就 · <b>N</b> 小地图 · <b>Esc</b> 设置</li>
+          <li><b>H</b> 药水/护士 · <b>M</b> 魔力 · <b>F</b> 地牢老人 · <b>P</b> 静音</li>
+          <li><b>F1</b> 创造模式 · 点选获取物品 / 飞行 / 穿墙</li>
+        </ul>
+      </div>
+      <div id="credit" class="panel hidden">
+        <h2>关于本作</h2>
+        <p>本作是 Re-Logic 公司作品《Terraria》的<strong>非商业粉丝致敬网页版</strong>。</p>
+        <p>所有素材均由程序化 Canvas 像素画现场生成，不包含任何原版资源文件。</p>
+        <p>玩法与美术致敬原版，但为独立实现。版权归原作者所有。</p>
+      </div>
+      <div class="footer">© 2026 · made with &lt;canvas&gt;</div>
+    </div>
+  </div>
+
+  <!-- 游戏画面 -->
+  <canvas id="game" class="hidden"></canvas>
+
+  <!-- 死亡 / 暂停覆盖层 -->
+  <div id="overlay" class="overlay hidden">
+    <div class="overlay-box">
+      <h2 id="overlay-title">你死了</h2>
+      <p id="overlay-sub">被夜晚的怪物击败了…</p>
+      <button id="btn-respawn" class="mc-btn">重生</button>
+      <button id="btn-tomenu"  class="mc-btn">返回菜单</button>
+    </div>
+  </div>
+
+  <!-- 通关结算 -->
+  <div id="victory" class="overlay hidden">
+    <div class="overlay-box victory-box">
+      <h2>★ 泰拉瑞亚已征服 ★</h2>
+      <p id="victory-sub">你击败了月亮领主</p>
+      <div id="victory-stats" class="victory-stats"></div>
+      <button id="btn-victory-continue" class="mc-btn">继续探索</button>
+      <button id="btn-victory-menu" class="mc-btn">返回主菜单</button>
+    </div>
+  </div>
+
+  <!-- 开发者创造模式（F1 或设置面板打开） -->
+  <div id="console" class="overlay hidden">
+    <div class="creative-box">
+      <div class="creative-head">
+        <h2>创造模式</h2>
+        <span class="creative-hint">左键物品获取 1 个 · 右键获取 99 个 · F1 / Esc 关闭</span>
+      </div>
+      <div class="creative-toggles">
+        <button type="button" class="c-toggle" data-toggle="fly"><span class="ct-ico">✈</span><span class="ct-label">飞行</span><span class="ct-state">关</span></button>
+        <button type="button" class="c-toggle" data-toggle="ghost"><span class="ct-ico">⛶</span><span class="ct-label">穿墙</span><span class="ct-state">关</span></button>
+        <button type="button" class="c-toggle" data-toggle="god"><span class="ct-ico">✦</span><span class="ct-label">无敌</span><span class="ct-state">关</span></button>
+      </div>
+      <div class="creative-tabs" id="creative-tabs"></div>
+      <div class="creative-grid" id="creative-grid"></div>
+    </div>
+  </div>
+
+  <!-- 设置界面（覆盖层，菜单 / 游戏内均可打开） -->
+  <div id="settings" class="overlay hidden">
+    <div class="settings-box">
+      <div class="settings-head">
+        <h2>设置</h2>
+        <button id="btn-settings-close" class="s-close">✕</button>
+      </div>
+      <div class="s-row">
+        <span class="s-label">音量</span>
+        <input type="range" id="s-vol" min="0" max="100" value="70" />
+        <span id="s-vol-val" class="s-val">70%</span>
+      </div>
+      <div class="s-row">
+        <span class="s-label">静音</span>
+        <button id="btn-s-mute" class="mc-btn">开启</button>
+      </div>
+      <div class="s-row">
+        <span class="s-label">光标信息</span>
+        <label class="s-switch"><input type="checkbox" id="s-cursorinfo" /><span class="s-sw-text">显示方块 / 生物名称</span></label>
+      </div>
+      <div class="s-help">
+        <h3>操作说明</h3>
+        <ul>
+          <li><b>A/D</b> 或 <b>←/→</b> 移动 · <b>空格/W</b> 跳跃</li>
+          <li><b>鼠标左键</b> 挖掘/攻击 · 选中<b>弓</b>左键射击</li>
+          <li><b>鼠标右键</b> 放置/使用</li>
+          <li><b>1–8 / 滚轮</b> 切换 Hotbar</li>
+          <li><b>E</b> 背包 · 左键装快捷栏 · 右键使用/穿戴 · <b>T</b> 丢弃</li>
+          <li><b>B</b> 成就 · <b>N</b> 小地图开关 · <b>Esc</b> 设置</li>
+          <li><b>H</b> 药水/护士 · <b>M</b> 魔力 · <b>F</b> 老人</li>
+          <li><b>F1</b> 创造模式（点选获取物品 / 飞行 / 穿墙）</li>
+          <li>打碎暗影珠×3 / 挖丛林幼虫 / 地狱巫毒娃娃 召唤 Boss</li>
+          <li>击败血肉墙进入困难模式 · 击败月亮领主通关</li>
+        </ul>
+      </div>
+      <div class="settings-foot">
+        <button id="btn-s-creative" class="mc-btn">✧ 打开创造模式</button>
+        <button id="btn-s-menu" class="mc-btn">返回主菜单</button>
+        <button id="btn-s-resume" class="mc-btn">返回游戏</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="audio.js?v=3"></script>
+  <script src="assets.js?v=3"></script>
+  <script src="data.js?v=3"></script>
+  <script src="world.js?v=3"></script>
+  <script src="player.js?v=3"></script>
+  <script src="entities.js?v=3"></script>
+  <script src="boss.js?v=3"></script>
+  <script src="npc.js?v=3"></script>
+  <script src="items.js?v=3"></script>
+  <script src="save.js?v=3"></script>
+  <script src="ui.js?v=3"></script>
+  <script src="main.js?v=3"></script>
+</body>
+</html>
