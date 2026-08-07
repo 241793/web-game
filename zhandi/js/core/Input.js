@@ -218,6 +218,10 @@ export class InputManager {
         if (code === 'KeyD' && ts.joystick.x > 0.3) return true;
         if (code === 'Space' && ts._jump) return true;
         if (code === 'KeyC' && ts._crouch) return true;
+        if (code === 'ShiftLeft' && ts._sprint) return true;
+        if (code === 'KeyZ' && ts._prone) return true;
+        if (code === 'KeyQ' && ts._leanLeft) return true;
+        if (code === 'KeyE' && ts._leanRight) return true;
         return false;
     }
 
@@ -273,49 +277,53 @@ export class InputManager {
         }
 
         // === 右侧滑动（视角控制）===
-        // 在整个游戏 HUD 区域的右半屏监听
-        const gameHUD = document.getElementById('gameHUD');
-        if (gameHUD) {
-            gameHUD.addEventListener('touchstart', (e) => {
-                // 忽略按钮区域的触摸
-                if (this._joystickTouchId !== null) return;
-                for (const touch of e.changedTouches) {
-                    // 右半屏才触发视角控制
-                    if (touch.clientX > window.innerWidth * 0.35 && this._lookTouchId === null) {
-                        // 不在按钮上
-                        const target = touch.target;
-                        if (target.closest('.mobile-btn') || target.closest('#joystickArea')) continue;
-                        this._lookTouchId = touch.identifier;
-                        this._lookLastX = touch.clientX;
-                        this._lookLastY = touch.clientY;
-                    }
-                }
-            }, { passive: true });
+        // 在 document 层监听：gameHUD 是 pointer-events:none，触摸不会派发到它，导致无法滑动视角。
+        // 排除摇杆/按钮/UI 面板后，其余触摸视为视角滑动。
+        const isUI = (el) => {
+            if (!el || !el.closest) return false;
+            return !!(el.closest('.mobile-btn') || el.closest('#joystickArea') ||
+                el.closest('#scorePanel') || el.closest('#healthPanel') || el.closest('#weaponPanel') ||
+                el.closest('#minimap') || el.closest('#killFeed') || el.closest('#squadPanel') ||
+                el.closest('#killConfirm') || el.closest('#interactionPrompt') || el.closest('#vehicleHUD') ||
+                el.closest('#mortarMap') || el.closest('#deployScreen') || el.closest('#scoreboard') ||
+                el.closest('#downedOverlay') || el.closest('#notification'));
+        };
+        const rightZone = (x) => x > window.innerWidth * 0.35;
 
-            gameHUD.addEventListener('touchmove', (e) => {
-                for (const touch of e.changedTouches) {
-                    if (touch.identifier === this._lookTouchId) {
-                        const dx = touch.clientX - this._lookLastX;
-                        const dy = touch.clientY - this._lookLastY;
-                        this._lookLastX = touch.clientX;
-                        this._lookLastY = touch.clientY;
-                        const effSens = this.sensitivity * this._aimSensitivityScale;
-                        this._touchState.lookDeltaX += Math.max(-this._maxMouseStep, Math.min(this._maxMouseStep, dx * effSens * 0.003));
-                        this._touchState.lookDeltaY += Math.max(-this._maxMouseStep, Math.min(this._maxMouseStep, dy * effSens * 0.003));
-                    }
-                }
-            }, { passive: true });
+        document.addEventListener('touchstart', (e) => {
+            if (this._joystickTouchId !== null) return;
+            for (const touch of e.changedTouches) {
+                if (!rightZone(touch.clientX) || this._lookTouchId !== null) continue;
+                const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (isUI(target)) continue;
+                this._lookTouchId = touch.identifier;
+                this._lookLastX = touch.clientX;
+                this._lookLastY = touch.clientY;
+            }
+        }, { passive: true });
 
-            const lookEnd = (e) => {
-                for (const touch of e.changedTouches) {
-                    if (touch.identifier === this._lookTouchId) {
-                        this._lookTouchId = null;
-                    }
+        document.addEventListener('touchmove', (e) => {
+            for (const touch of e.changedTouches) {
+                if (touch.identifier !== this._lookTouchId) continue;
+                const dx = touch.clientX - this._lookLastX;
+                const dy = touch.clientY - this._lookLastY;
+                this._lookLastX = touch.clientX;
+                this._lookLastY = touch.clientY;
+                const effSens = this.sensitivity * this._aimSensitivityScale;
+                this._touchState.lookDeltaX += Math.max(-this._maxMouseStep, Math.min(this._maxMouseStep, dx * effSens * 0.003));
+                this._touchState.lookDeltaY += Math.max(-this._maxMouseStep, Math.min(this._maxMouseStep, dy * effSens * 0.003));
+            }
+        }, { passive: true });
+
+        const lookEnd = (e) => {
+            for (const touch of e.changedTouches) {
+                if (touch.identifier === this._lookTouchId) {
+                    this._lookTouchId = null;
                 }
-            };
-            gameHUD.addEventListener('touchend', lookEnd);
-            gameHUD.addEventListener('touchcancel', lookEnd);
-        }
+            }
+        };
+        document.addEventListener('touchend', lookEnd);
+        document.addEventListener('touchcancel', lookEnd);
 
         // === 动作按钮 ===
         this._bindMobileButton('mbtnShoot', () => { this._touchState.shooting = true; }, () => { this._touchState.shooting = false; });
@@ -325,10 +333,18 @@ export class InputManager {
         this._bindMobileButton('mbtnInteract', () => { if (this.onKeyDown) this.onKeyDown('KeyF', {}); }, null);
         this._bindMobileButton('mbtnJump', () => { this._touchState._jump = true; }, () => { this._touchState._jump = false; });
         this._bindMobileButton('mbtnCrouch', () => { this._touchState._crouch = true; }, () => { this._touchState._crouch = false; });
+        this._bindMobileButton('mbtnSprint', () => { this._touchState._sprint = true; }, () => { this._touchState._sprint = false; });
+        this._bindMobileButton('mbtnProne', () => { this._touchState._prone = true; }, () => { this._touchState._prone = false; });
+        this._bindMobileButton('mbtnLeanL', () => { this._touchState._leanLeft = true; }, () => { this._touchState._leanLeft = false; });
+        this._bindMobileButton('mbtnLeanR', () => { this._touchState._leanRight = true; }, () => { this._touchState._leanRight = false; });
+        this._bindMobileButton('mbtnGadget', () => { if (this.onKeyDown) this.onKeyDown('Digit3', {}); }, null);
+        this._bindMobileButton('mbtnSpecial', () => { if (this.onKeyDown) this.onKeyDown('Digit5', {}); }, null);
         this._bindMobileButton('mbtnWeapon1', () => { if (this.onKeyDown) this.onKeyDown('Digit1', {}); this._updateWeaponBtnActive(1); }, null);
         this._bindMobileButton('mbtnWeapon2', () => { if (this.onKeyDown) this.onKeyDown('Digit2', {}); this._updateWeaponBtnActive(2); }, null);
         this._bindMobileButton('mbtnScoreboard', () => { if (this.onKeyDown) this.onKeyDown('Tab', { preventDefault: () => {} }); }, () => { if (this.onKeyUp) this.onKeyUp('Tab', {}); });
         this._bindMobileButton('mbtnPause', () => { if (this.onKeyDown) this.onKeyDown('Escape', {}); }, null);
+        this._bindMobileButton('mbtnVehicleView', () => { if (this.onKeyDown) this.onKeyDown('KeyV', {}); }, null);
+        this._bindMobileButton('mbtnVehicleSeat', () => { if (this.onKeyDown) this.onKeyDown('KeyC', {}); }, null);
     }
 
     _updateJoystick(touch, thumb, baseRect, maxDist) {

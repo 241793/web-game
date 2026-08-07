@@ -2,10 +2,10 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>前线突击</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="css/style.css?v=20260806.3">
+    <link rel="stylesheet" href="css/style.css?v=20260807.2">
     <script type="importmap">
     {
         "imports": {
@@ -620,21 +620,32 @@
 
     <!-- 移动端触控 UI -->
     <div id="mobileControls" class="hidden">
-        <!-- 虚拟摇杆 -->
+        <!-- 虚拟摇杆（左下） -->
         <div id="joystickArea">
             <div id="joystickBase">
                 <div id="joystickThumb"></div>
             </div>
         </div>
+        <!-- 左侧姿态按钮（摇杆上方） -->
+        <div id="mobileStance">
+            <button id="mbtnSprint" class="mobile-btn small-btn">冲刺</button>
+            <button id="mbtnCrouch" class="mobile-btn small-btn">蹲</button>
+            <button id="mbtnProne" class="mobile-btn small-btn">趴</button>
+            <button id="mbtnJump" class="mobile-btn small-btn">跳</button>
+        </div>
         <!-- 右侧动作按钮 -->
         <div id="mobileButtons">
             <button id="mbtnShoot" class="mobile-btn shoot-btn">射击</button>
             <button id="mbtnADS" class="mobile-btn ads-btn">瞄准</button>
-            <button id="mbtnReload" class="mobile-btn">R</button>
-            <button id="mbtnGrenade" class="mobile-btn">G</button>
-            <button id="mbtnInteract" class="mobile-btn">F</button>
-            <button id="mbtnJump" class="mobile-btn">跳</button>
-            <button id="mbtnCrouch" class="mobile-btn">蹲</button>
+            <button id="mbtnReload" class="mobile-btn small-btn">换弹</button>
+            <button id="mbtnGrenade" class="mobile-btn small-btn">手雷</button>
+            <button id="mbtnGadget" class="mobile-btn small-btn">技能</button>
+            <button id="mbtnSpecial" class="mobile-btn small-btn">特殊</button>
+            <button id="mbtnLeanL" class="mobile-btn small-btn">◀侧</button>
+            <button id="mbtnLeanR" class="mobile-btn small-btn">侧▶</button>
+            <button id="mbtnInteract" class="mobile-btn small-btn">互动</button>
+            <button id="mbtnVehicleView" class="mobile-btn small-btn">视角</button>
+            <button id="mbtnVehicleSeat" class="mobile-btn small-btn">座位</button>
         </div>
         <!-- 左上/右上快捷按钮 -->
         <div id="mobileTopButtons">
@@ -648,6 +659,6 @@
         </div>
     </div>
 
-    <script type="module" src="js/main.js?v=20260806.3"></script>
+    <script type="module" src="js/main.js?v=20260807.2"></script>
 </body>
 </html>

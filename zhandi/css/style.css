@@ -2613,6 +2613,8 @@ kbd {
     inset: 0;
     pointer-events: none;
     z-index: 150;
+    touch-action: none;
+    user-select: none;
 }
 
 #mobileControls .mobile-btn,
@@ -2620,21 +2622,22 @@ kbd {
     pointer-events: auto;
 }
 
-/* 虚拟摇杆 */
+/* 虚拟摇杆（左下） */
 #joystickArea {
     position: absolute;
-    bottom: 40px;
-    left: 40px;
-    width: 140px;
-    height: 140px;
+    bottom: 26px;
+    left: 26px;
+    width: 132px;
+    height: 132px;
+    opacity: 0.9;
 }
 
 #joystickBase {
-    width: 140px;
-    height: 140px;
+    width: 132px;
+    height: 132px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    border: 2px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.06);
+    border: 2px solid rgba(255, 255, 255, 0.18);
     position: relative;
     display: flex;
     align-items: center;
@@ -2642,35 +2645,45 @@ kbd {
 }
 
 #joystickThumb {
-    width: 56px;
-    height: 56px;
+    width: 52px;
+    height: 52px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.25);
-    border: 2px solid rgba(255, 255, 255, 0.45);
+    background: rgba(255, 255, 255, 0.22);
+    border: 2px solid rgba(255, 255, 255, 0.4);
     position: absolute;
     transition: none;
     will-change: transform;
 }
 
+/* 姿态按钮（摇杆上方一排：冲刺/蹲/趴/跳） */
+#mobileStance {
+    position: absolute;
+    bottom: 168px;
+    left: 26px;
+    display: flex;
+    gap: 8px;
+}
+
 /* 右侧动作按钮 */
 #mobileButtons {
     position: absolute;
-    bottom: 30px;
+    bottom: 26px;
     right: 20px;
     display: grid;
-    grid-template-columns: repeat(2, 56px);
-    gap: 10px;
+    grid-template-columns: repeat(3, 52px);
+    gap: 8px;
     align-items: end;
+    justify-items: center;
 }
 
 .mobile-btn {
     width: 56px;
     height: 56px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
-    border: 2px solid rgba(255, 255, 255, 0.25);
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 14px;
+    background: rgba(255, 255, 255, 0.09);
+    border: 2px solid rgba(255, 255, 255, 0.22);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 13px;
     font-weight: 700;
     font-family: inherit;
     display: flex;
@@ -2678,54 +2691,57 @@ kbd {
     justify-content: center;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
+    touch-action: none;
+    backdrop-filter: blur(2px);
 }
 
 .mobile-btn:active,
 .mobile-btn.pressed {
-    background: rgba(255, 140, 0, 0.35);
-    border-color: rgba(255, 140, 0, 0.7);
+    background: rgba(255, 140, 0, 0.4);
+    border-color: rgba(255, 140, 0, 0.75);
+}
+
+.small-btn {
+    width: 48px;
+    height: 48px;
+    font-size: 11px;
 }
 
 .shoot-btn {
-    width: 76px;
-    height: 76px;
-    font-size: 16px;
-    background: rgba(255, 60, 30, 0.2);
+    width: 72px;
+    height: 72px;
+    font-size: 15px;
+    background: rgba(255, 60, 30, 0.22);
     border-color: rgba(255, 80, 50, 0.5);
-    grid-column: 1 / -1;
-    justify-self: end;
+    grid-row: span 2;
 }
 
 .shoot-btn:active,
 .shoot-btn.pressed {
-    background: rgba(255, 60, 30, 0.5);
+    background: rgba(255, 60, 30, 0.55);
 }
 
 .ads-btn {
-    background: rgba(100, 180, 255, 0.12);
+    background: rgba(100, 180, 255, 0.14);
     border-color: rgba(100, 180, 255, 0.35);
 }
 
 .ads-btn:active,
-.ads-btn.pressed {
-    background: rgba(100, 180, 255, 0.35);
-}
-
+.ads-btn.pressed,
 .ads-btn.active {
-    background: rgba(100, 180, 255, 0.3);
+    background: rgba(100, 180, 255, 0.35);
     border-color: rgba(100, 180, 255, 0.7);
 }
 
 /* 左上/右上快捷按钮 */
 #mobileTopButtons {
     position: absolute;
-    top: 12px;
+    top: 10px;
     left: 0;
     right: 0;
     display: flex;
     justify-content: space-between;
-    padding: 0 12px;
+    padding: 0 10px;
     pointer-events: none;
 }
 
@@ -2734,9 +2750,9 @@ kbd {
 }
 
 .top-btn {
-    width: 44px;
-    height: 44px;
-    font-size: 12px;
+    width: 42px;
+    height: 42px;
+    font-size: 11px;
     background: rgba(0, 0, 0, 0.4);
     border-color: rgba(255, 255, 255, 0.2);
 }
@@ -2744,8 +2760,8 @@ kbd {
 /* 武器切换 */
 #mobileWeaponSwitch {
     position: absolute;
-    bottom: 200px;
     right: 20px;
+    bottom: 240px;
     display: flex;
     gap: 8px;
     pointer-events: none;
@@ -2758,13 +2774,72 @@ kbd {
 .weapon-btn {
     width: 44px;
     height: 44px;
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .weapon-btn.active {
     background: rgba(255, 140, 0, 0.25);
     border-color: rgba(255, 140, 0, 0.6);
     color: #ff8c00;
+}
+
+/* ===== 横屏优化：按钮贴边更小，中间让出视野 ===== */
+@media (orientation: landscape) {
+    #joystickArea {
+        bottom: 14px;
+        left: 14px;
+        width: 118px;
+        height: 118px;
+    }
+    #joystickBase {
+        width: 118px;
+        height: 118px;
+    }
+    #mobileStance {
+        bottom: 140px;
+        left: 14px;
+        gap: 6px;
+    }
+    #mobileButtons {
+        bottom: 14px;
+        right: 12px;
+        grid-template-columns: repeat(3, 46px);
+        gap: 6px;
+    }
+    .mobile-btn {
+        width: 46px;
+        height: 46px;
+        font-size: 11px;
+        background: rgba(255, 255, 255, 0.07);
+    }
+    .small-btn {
+        width: 42px;
+        height: 42px;
+        font-size: 10px;
+    }
+    .shoot-btn {
+        width: 60px;
+        height: 60px;
+        font-size: 13px;
+    }
+    #mobileWeaponSwitch {
+        right: 12px;
+        bottom: 208px;
+    }
+    .weapon-btn {
+        width: 38px;
+        height: 38px;
+        font-size: 11px;
+    }
+    /* 横屏下压扁摇杆区域，避免与姿态按钮重叠 */
+    #joystickArea {
+        width: 112px;
+        height: 112px;
+    }
+    #joystickBase {
+        width: 112px;
+        height: 112px;
+    }
 }
 
 /* ========== 部署/重生界面 ========== */

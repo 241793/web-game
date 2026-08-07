@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260806.3';
+import { CONFIG } from '../config.js?v=20260807.2';
 import { InputManager } from './Input.js?v=20260802.4';
-import { World } from '../world/World.js?v=20260806.3';
-import { PlayerController } from '../player/PlayerController.js?v=20260806.3';
-import { WeaponSystem } from '../weapons/WeaponSystem.js?v=20260806.3';
+import { World } from '../world/World.js?v=20260807.2';
+import { PlayerController } from '../player/PlayerController.js?v=20260807.2';
+import { WeaponSystem } from '../weapons/WeaponSystem.js?v=20260807.2';
 import { Bot } from '../ai/Bot.js?v=20260802.3';
 import { Vehicle } from '../vehicles/Vehicle.js?v=20260802.6';
 import { AudioManager } from '../audio/AudioManager.js?v=20260801.2';
-import { HUD } from '../ui/HUD.js?v=20260806.3';
-import { MenuManager } from '../ui/Menu.js?v=20260806.3';
+import { HUD } from '../ui/HUD.js?v=20260807.2';
+import { MenuManager } from '../ui/Menu.js?v=20260807.2';
 import { GameModeFactory } from './GameModeFactory.js?v=20260802.4';
 import { DestructibleRegistry } from '../world/DestructibleRegistry.js?v=20260801.2';
 import { FortificationSystem } from '../world/FortificationSystem.js?v=20260801.2';
@@ -1807,6 +1807,11 @@ export class Game {
         const ctrl = startPos.clone().lerp(target, 0.5);
         ctrl.y += (cfg.arc || 0.9) * Math.min(cfg.range || 90, 60) * 0.5;
 
+        // 发射后跟随炮弹视角：隐藏选点地图，相机接管跟随炮弹，爆炸后回到地图/关闭
+        this._mortarShellFollow = true;
+        this._mortarShellTarget = target.clone();
+        this.hud.hideMortarMap();
+
         this._pendingProjectiles = this._pendingProjectiles || [];
         this._pendingProjectiles.push({
             owner,
@@ -1816,14 +1821,25 @@ export class Game {
             from: startPos,
             to: target.clone(),
             ctrl,
+            mortarFollow: true,
             onArrive: () => {
                 if (projMesh.parent) this.scene.remove(projMesh);
                 projMesh.geometry?.dispose?.();
                 projMesh.material?.dispose?.();
+                this._mortarShellFollow = false;
                 this._onExplosion(target, cfg.radius, cfg.damage, team, owner, false, { antiVehicleMult: 0.8 });
                 if (this.player.addShake && this.player.position.distanceTo(target) < cfg.radius * 3) {
                     this.player.addShake(0.25);
                 }
+                // 还有弹药 → 回到选点地图；耗尽 → 关闭
+                setTimeout(() => {
+                    if (this._mortarActive && this._mortarMapOpen) {
+                        this.hud.showMortarMap(this._mortarActive.ammo);
+                        this.hud.setMortarClickCallback((px, py) => this._onMortarMapClick(px, py));
+                    } else if (!this._mortarActive) {
+                        this._closeMortarMap();
+                    }
+                }, mortar.ammo > 0 ? 900 : 400);
             },
         });
 
@@ -1831,13 +1847,37 @@ export class Game {
         // 弹药用尽自动关闭
         if (mortar.ammo <= 0) {
             this.hud.updateMortarTarget('弹药耗尽');
-            setTimeout(() => this._closeMortarMap(), 400);
         }
+    }
+
+    // 迫击炮炮弹飞行/爆炸期间相机跟随
+    _updateMortarShellCamera() {
+        if (!this._mortarShellFollow || this._pendingProjectiles.length === 0) return;
+        // 找在飞的迫击炮弹（最近的）
+        let follow = null;
+        for (const p of this._pendingProjectiles) {
+            if (p.mortarFollow) { follow = p; break; }
+        }
+        if (!follow || !follow.mesh) return;
+        const pos = follow.mesh.position;
+        // 相机置于炮弹后方上方，看向炮弹/落点
+        const toTarget = this._mortarShellTarget.clone().sub(pos);
+        const dir = toTarget.lengthSq() > 0.001 ? toTarget.normalize() : new THREE.Vector3(0, 0, -1);
+        const camPos = pos.clone().sub(dir.clone().multiplyScalar(4.5));
+        camPos.y += 2.2;
+        const groundY = this.world.getHeight(camPos.x, camPos.z);
+        if (camPos.y < groundY + 1) camPos.y = groundY + 1;
+        this.camera.position.lerp(camPos, 0.35);
+        const lookAt = pos.clone();
+        lookAt.y += 0.6;
+        this.camera.lookAt(lookAt);
     }
 
     // 更新选点地图画面（节流 0.1s，避免每帧全量重绘 640x640）
     _updateMortarMap(dt) {
         if (!this._mortarMapOpen || !this._mortarActive) return;
+        // 发射后跟随炮弹期间不重绘地图（相机在看炮弹）
+        if (this._mortarShellFollow) return;
         this._mortarMapTimer = (this._mortarMapTimer || 0) - dt;
         if (this._mortarMapTimer > 0) return;
         this._mortarMapTimer = 0.1;
@@ -1856,6 +1896,8 @@ export class Game {
 
     _closeMortarMap() {
         this._mortarMapOpen = false;
+        this._mortarShellFollow = false;
+        this._mortarShellTarget = null;
         this.player._mortarLock = false;
         this.hud.hideMortarMap();
         if (this._mortarActive?.mesh) this._disposeObject3D(this._mortarActive.mesh);
@@ -6044,6 +6086,7 @@ export class Game {
         this._updatePendingProjectiles(dt);
         this._updateStaticGuns(dt);
         this._updateMortarMap(dt);
+        this._updateMortarShellCamera();
 
         // 交互检测
         if (this.player.alive) {

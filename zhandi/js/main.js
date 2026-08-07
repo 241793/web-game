@@ -1,4 +1,4 @@
-import { Game } from './core/Game.js?v=20260806.3';
+import { Game } from './core/Game.js?v=20260807.2';
 
 // 游戏入口
 async function main() {
