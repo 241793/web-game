@@ -10,6 +10,10 @@ export class HUD {
         // 性能优化：节流计时器
         this._scoreboardTimer = 0;    // 计分板更新间隔
         this._minimapTimer = 0;       // 小地图更新间隔
+        this._supportSelectCallback = null;
+        for (const button of document.querySelectorAll('.support-option')) {
+            button.addEventListener('click', () => this._supportSelectCallback?.(button.dataset.support));
+        }
     }
 
     _cacheElements() {
@@ -20,7 +24,7 @@ export class HUD {
             'staminaBar',
             'leanIndicator', 'leanDirection',
             'spawnProtectionIndicator',
-            'weaponPanel', 'weaponName', 'weaponMode', 'ammoCurrent', 'ammoReserve', 'weaponSlots',
+            'weaponPanel', 'weaponName', 'weaponMode', 'weaponOptic', 'ammoCurrent', 'ammoReserve', 'weaponSlots',
             'friendlyScore', 'enemyScore', 'gameTimer',
             'friendlyTickets', 'enemyTickets',
             'objectiveText', 'killFeed', 'minimap',
@@ -32,7 +36,7 @@ export class HUD {
             'vehicleDamageStatus', 'vehicleCriticalStatus',
             'vehicleTurretIndicator', 'vtiTurretArrow',
             'interactionPrompt', 'interactionText',
-            'reloadIndicator', 'deathScreen', 'killerName', 'respawnTimer',
+            'reloadIndicator', 'reloadProgress', 'reloadTime', 'deathScreen', 'killerName', 'respawnTimer',
             'fpsCounter', 'scoreboard', 'sbFriendly', 'sbEnemy',
             'notification', 'vehicleControls', 'gameHUD',
             'suppressionOverlay', 'lowHealthVignette', 'damageNumbers',
@@ -51,6 +55,9 @@ export class HUD {
             // 小队
             'squadPanel', 'squadList',
             'objectiveText', 'gameModeLabel',
+            'directorPanel', 'directorMissionText', 'directorMissionTime', 'directorMissionProgress',
+            'directorRequisition', 'directorSpecialization', 'directorModeStatus',
+            'supportPanel', 'supportBalance', 'supportSmokeStatus', 'supportSupplyStatus', 'supportRallyStatus',
         ];
         for (const id of ids) {
             this.elements[id] = document.getElementById(id);
@@ -326,6 +333,23 @@ export class HUD {
             this.elements.reloadIndicator.classList.toggle('hidden', !weaponState.isReloading);
             document.querySelector('.ammo-info')?.classList.toggle('reloading', !!weaponState.isReloading);
         }
+        if (weaponState.isReloading) {
+            const progress = Math.max(0, Math.min(1, weaponState.reloadProgress || 0));
+            const progressKey = Math.round(progress * 1000);
+            if (cache.reloadProgress !== progressKey) {
+                cache.reloadProgress = progressKey;
+                this.elements.reloadProgress.style.transform = `scaleX(${progress})`;
+            }
+            const remainingText = `${Math.max(0, weaponState.reloadRemaining || 0).toFixed(1)}s`;
+            if (cache.reloadRemaining !== remainingText) {
+                cache.reloadRemaining = remainingText;
+                this.elements.reloadTime.textContent = remainingText;
+            }
+        } else {
+            cache.reloadProgress = -1;
+            cache.reloadRemaining = '';
+            this.elements.reloadProgress.style.transform = 'scaleX(0)';
+        }
 
         const listKey = `${weaponState.currentIdx}|${weaponState.weaponList.join('|')}`;
         if (cache.listKey !== listKey) {
@@ -342,6 +366,20 @@ export class HUD {
         if (cache.holdingBreath !== weaponState.isHoldingBreath) {
             cache.holdingBreath = weaponState.isHoldingBreath;
             this.elements.weaponName.classList.toggle('breath-hold', !!weaponState.isHoldingBreath);
+        }
+
+        // 瞄具标签（仅在变化时更新 DOM）
+        if (this.elements.weaponOptic) {
+            const opticKey = `${weaponState.opticName || ''}|${weaponState.opticStyle || ''}`;
+            if (cache.opticKey !== opticKey) {
+                cache.opticKey = opticKey;
+                if (weaponState.opticName && weaponState.opticStyle !== 'iron') {
+                    this.elements.weaponOptic.textContent = weaponState.opticName;
+                    this.elements.weaponOptic.classList.remove('hidden');
+                } else {
+                    this.elements.weaponOptic.classList.add('hidden');
+                }
+            }
         }
     }
 
@@ -466,6 +504,89 @@ export class HUD {
             panel.classList.toggle('cooling', cooling);
             panel.classList.toggle('ready', !cooling);
         }
+    }
+
+    updateDirector(data) {
+        const panel = this.elements.directorPanel;
+        if (!panel) return;
+        if (!data) {
+            this.clearDirector();
+            return;
+        }
+
+        panel.classList.remove('hidden');
+        const missionStateLabels = {
+            idle: '等待新任务',
+            announced: '任务即将开始',
+            success: '任务完成',
+            failure: '任务失败',
+            cooldown: '任务整备中',
+        };
+        const missionText = data.missionState === 'active'
+            ? data.missionTitle
+            : (data.missionState === 'announced' ? data.missionTitle : missionStateLabels[data.missionState] || data.missionTitle);
+        const missionTime = data.missionState === 'active' ? `${Math.ceil(data.missionTime)}s` : '';
+        const progress = Math.round(Math.max(0, Math.min(1, data.missionProgress || 0)) * 100);
+        const requisition = `征用 ${data.requisition}/${data.requisitionMax}`;
+        const specialization = `${data.specializationName || '专精'} Lv.${data.specializationLevel} · ${data.specializationXP}/${data.specializationThreshold}`;
+        const modeStatus = data.mode?.modeHint || '';
+        const cache = this._directorHudCache || (this._directorHudCache = {});
+
+        const values = { missionText, missionTime, requisition, specialization, modeStatus };
+        const elements = {
+            missionText: this.elements.directorMissionText,
+            missionTime: this.elements.directorMissionTime,
+            requisition: this.elements.directorRequisition,
+            specialization: this.elements.directorSpecialization,
+            modeStatus: this.elements.directorModeStatus,
+        };
+        for (const [key, value] of Object.entries(values)) {
+            if (cache[key] === value) continue;
+            cache[key] = value;
+            if (elements[key]) elements[key].textContent = value;
+        }
+        if (cache.progress !== progress) {
+            cache.progress = progress;
+            if (this.elements.directorMissionProgress) this.elements.directorMissionProgress.style.width = `${progress}%`;
+        }
+    }
+
+    clearDirector() {
+        this.elements.directorPanel?.classList.add('hidden');
+        this._directorHudCache = {};
+        this.hideSupportPanel();
+    }
+
+    setSupportSelectCallback(callback) {
+        this._supportSelectCallback = typeof callback === 'function' ? callback : null;
+    }
+
+    showSupportPanel(data) {
+        const panel = this.elements.supportPanel;
+        if (!panel || !data) return;
+        panel.classList.remove('hidden');
+        if (this.elements.supportBalance) this.elements.supportBalance.textContent = `征用 ${data.requisition}/${data.requisitionMax}`;
+        const entries = [
+            ['smoke', this.elements.supportSmokeStatus],
+            ['supply', this.elements.supportSupplyStatus],
+            ['rally', this.elements.supportRallyStatus],
+        ];
+        for (const [type, statusEl] of entries) {
+            const cooldown = Math.max(data.supportCooldown || 0, data.supportTypeCooldowns?.[type] || 0);
+            const cost = data.supportCosts?.[type] || 0;
+            const available = cooldown <= 0 && data.requisition >= cost;
+            if (statusEl) statusEl.textContent = cooldown > 0 ? `${Math.ceil(cooldown)}s` : `${cost}`;
+            const button = panel.querySelector(`[data-support="${type}"]`);
+            button?.classList.toggle('disabled', !available);
+        }
+    }
+
+    hideSupportPanel() {
+        this.elements.supportPanel?.classList.add('hidden');
+    }
+
+    isSupportPanelOpen() {
+        return !!this.elements.supportPanel && !this.elements.supportPanel.classList.contains('hidden');
     }
 
     // 更新比分
@@ -1219,13 +1340,57 @@ export class HUD {
     }
 
     // 显示互动提示
-    showInteraction(text) {
-        this.elements.interactionText.textContent = text;
-        this.elements.interactionPrompt.classList.remove('hidden');
+    // actions: [{key:'F', label:'进入载具'}, ...] 动作列表；或字符串（向后兼容，纯文本）
+    showInteraction(actions) {
+        const prompt = this.elements.interactionPrompt;
+        if (!prompt) return;
+        // 兼容旧字符串调用
+        if (typeof actions === 'string') {
+            this.elements.interactionText.textContent = actions;
+            // 字符串模式下清掉动作节点，只保留文本
+            const oldActions = prompt.querySelector('.interaction-actions');
+            if (oldActions) oldActions.remove();
+            prompt.classList.remove('hidden');
+            return;
+        }
+        if (!Array.isArray(actions) || actions.length === 0) {
+            this.hideInteraction();
+            return;
+        }
+        // 缓存签名，避免每帧重复改 DOM
+        const sig = actions.map(a => `${a.key}:${a.label}`).join('|');
+        if (this._interactionSig === sig && !prompt.classList.contains('hidden')) return;
+        this._interactionSig = sig;
+
+        // 清掉旧的动作节点和纯文本
+        let actionsEl = prompt.querySelector('.interaction-actions');
+        if (!actionsEl) {
+            actionsEl = document.createElement('span');
+            actionsEl.className = 'interaction-actions';
+            prompt.appendChild(actionsEl);
+        }
+        actionsEl.innerHTML = '';
+        for (const a of actions) {
+            const entry = document.createElement('span');
+            entry.className = 'interaction-entry';
+            if (a.key) {
+                const kbd = document.createElement('kbd');
+                kbd.textContent = a.key;
+                entry.appendChild(kbd);
+            }
+            const label = document.createElement('span');
+            label.textContent = a.label;
+            entry.appendChild(label);
+            actionsEl.appendChild(entry);
+        }
+        // 纯文本节点隐藏
+        this.elements.interactionText.textContent = '';
+        prompt.classList.remove('hidden');
     }
 
     hideInteraction() {
         this.elements.interactionPrompt.classList.add('hidden');
+        this._interactionSig = null;
     }
 
     // 显示死亡画面
@@ -1332,10 +1497,11 @@ export class HUD {
         }
     }
 
-    // 狙击镜遮罩
-    showScope() {
+    // 瞄准镜遮罩（按瞄具风格切换：combat 3-4x / sniper 6-8x）
+    showScope(style = 'sniper') {
         if (this.elements.scopeOverlay) {
             this.elements.scopeOverlay.classList.remove('hidden');
+            this.elements.scopeOverlay.dataset.scopeStyle = style;
         }
         if (this.elements.crosshair) {
             this.elements.crosshair.style.opacity = '0';
@@ -1345,6 +1511,7 @@ export class HUD {
     hideScope() {
         if (this.elements.scopeOverlay) {
             this.elements.scopeOverlay.classList.add('hidden');
+            delete this.elements.scopeOverlay.dataset.scopeStyle;
         }
         if (this.elements.crosshair) {
             this.elements.crosshair.style.opacity = '';
@@ -1559,7 +1726,7 @@ export class HUD {
             // - 据点(friendly/enemy/neutral): 250m 内显示，远距离淡出消失
             // - 战略目标(objective)/命令(order): 300m 内显示
             // - 已标记敌人(spotted)/补给(supply): 200m 内显示
-            const isObjective = marker.type === 'objective' || marker.type === 'order';
+            const isObjective = ['objective', 'order', 'mission', 'rally'].includes(marker.type);
             const farHideDist = isObjective ? 300 : 200;
             // 远距离时整体淡出至完全消失（不再保留最低可见度）
             let baseOpacity = 1 - Math.max(0, marker.distance - 50) / farHideDist;
@@ -1578,9 +1745,11 @@ export class HUD {
                     distEl.style.display = showLabel ? '' : 'none';
                 }
                 if (labelEl) {
+                    if (labelEl.textContent !== marker.text) labelEl.textContent = marker.text;
                     labelEl.style.display = showLabel ? '' : 'none';
                 }
                 if (iconEl) {
+                    if (iconEl.textContent !== marker.label) iconEl.textContent = marker.label;
                     iconEl.className = `wm-icon ${marker.type}`;
                 }
             } else if (!onScreen) {

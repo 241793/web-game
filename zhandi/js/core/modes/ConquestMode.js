@@ -1,5 +1,5 @@
 // 征服模式 - 占领据点消耗敌方票数
-import { GameMode } from '../GameMode.js?v=20260802.4';
+import { GameMode } from '../GameMode.js?v=20260811.1';
 
 export class ConquestMode extends GameMode {
     constructor(game, modeConfig) {

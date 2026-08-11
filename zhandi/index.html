@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>前线突击</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="css/style.css?v=20260807.2">
+    <link rel="stylesheet" href="css/style.css?v=20260811.1">
     <script type="importmap">
     {
         "imports": {
@@ -145,6 +145,20 @@
                     <span class="secondary-weapon">副武器: <strong id="secondaryWeaponText">P226</strong></span>
                 </div>
                 <div id="primaryWeaponOptions" class="weapon-options"></div>
+                <div id="opticSelect" class="optic-select hidden">
+                    <div class="optic-select-header">
+                        <span>瞄准镜</span>
+                        <span id="opticHint">随武器兼容</span>
+                    </div>
+                    <div id="opticOptions" class="optic-options"></div>
+                </div>
+            </div>
+            <div id="specializationSelect" class="specialization-select hidden">
+                <div class="specialization-header">
+                    <span>局内专精</span>
+                    <span id="specializationProgress">选择路线后一级立即生效</span>
+                </div>
+                <div id="specializationOptions" class="specialization-options"></div>
             </div>
             <button id="btnDeploy" class="menu-btn primary" disabled>部署</button>
             <button id="btnBackToMenu" class="menu-btn">返回</button>
@@ -313,6 +327,7 @@
         <!-- 右下：武器和弹药 -->
         <div id="weaponPanel" class="hud-panel">
             <div class="weapon-name" id="weaponName">M416</div>
+            <div class="weapon-optic hidden" id="weaponOptic"></div>
             <div class="weapon-mode" id="weaponMode">自动</div>
             <div class="ammo-info">
                 <span class="ammo-current" id="ammoCurrent">30</span>
@@ -343,6 +358,23 @@
             </div>
         </div>
 
+        <div id="supportPanel" class="hud-panel support-panel hidden">
+            <div class="support-panel-header">
+                <span>战术支援</span>
+                <span id="supportBalance">征用 0</span>
+            </div>
+            <button type="button" class="support-option" data-support="smoke">
+                <span class="support-key">1</span><span>烟幕炮击</span><strong id="supportSmokeStatus">60</strong>
+            </button>
+            <button type="button" class="support-option" data-support="supply">
+                <span class="support-key">2</span><span>定点补给</span><strong id="supportSupplyStatus">90</strong>
+            </button>
+            <button type="button" class="support-option" data-support="rally">
+                <span class="support-key">3</span><span>临时集结点</span><strong id="supportRallyStatus">120</strong>
+            </button>
+            <div class="support-panel-hint">B 关闭 · 以准星或当前位置部署</div>
+        </div>
+
         <!-- 顶部：比分和票数 -->
         <div id="scorePanel" class="hud-panel">
             <div class="team-score friendly">
@@ -364,6 +396,18 @@
         <!-- 目标点指示 -->
         <div id="objectiveInfo" class="hud-panel">
             <span id="objectiveText">占领据点 A</span>
+            <div id="directorPanel" class="director-panel hidden">
+                <div class="director-mission-row">
+                    <span id="directorMissionText">等待新任务</span>
+                    <span id="directorMissionTime"></span>
+                </div>
+                <div class="director-progress"><i id="directorMissionProgress"></i></div>
+                <div class="director-status-row">
+                    <span id="directorRequisition">征用 25/200</span>
+                    <span id="directorSpecialization">专精 Lv.1</span>
+                    <span id="directorModeStatus"></span>
+                </div>
+            </div>
         </div>
 
         <!-- 小队面板（战地风格左侧） -->
@@ -452,7 +496,7 @@
 
         <!-- 互动提示 -->
         <div id="interactionPrompt" class="hidden">
-            <span>按 <kbd>F</kbd> </span><span id="interactionText">进入载具</span>
+            <span id="interactionText">进入载具</span>
         </div>
 
         <!-- 工事建造面板 -->
@@ -471,7 +515,13 @@
         </div>
 
         <!-- 换弹提示 -->
-        <div id="reloadIndicator" class="hidden">换弹中...</div>
+        <div id="reloadIndicator" class="hidden" aria-live="polite">
+            <div class="reload-status-row">
+                <span class="reload-label">换弹</span>
+                <span id="reloadTime">0.0s</span>
+            </div>
+            <div class="reload-track"><div id="reloadProgress"></div></div>
+        </div>
 
         <!-- 死亡画面 -->
         <div id="deathScreen" class="hidden">
@@ -649,8 +699,9 @@
         </div>
         <!-- 左上/右上快捷按钮 -->
         <div id="mobileTopButtons">
+            <button id="mbtnSupport" class="mobile-btn top-btn">支援</button>
             <button id="mbtnScoreboard" class="mobile-btn top-btn">Tab</button>
-            <button id="mbtnPause" class="mobile-btn top-btn">⏸</button>
+            <button id="mbtnPause" class="mobile-btn top-btn">暂停</button>
         </div>
         <!-- 切换武器按钮 -->
         <div id="mobileWeaponSwitch">
@@ -659,6 +710,6 @@
         </div>
     </div>
 
-    <script type="module" src="js/main.js?v=20260807.2"></script>
+    <script type="module" src="js/main.js?v=20260811.1"></script>
 </body>
 </html>

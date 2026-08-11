@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { Terrain } from './Terrain.js?v=20260802.3';
-import { ObstacleSystem } from './Obstacles.js?v=20260806.2';
+import { Terrain } from './Terrain.js?v=20260811.1';
+import { ObstacleSystem } from './Obstacles.js?v=20260810.2';
 import { createProceduralTexture } from '../utils/VisualAssets.js?v=20260802.3';
-import { CONFIG } from '../config.js?v=20260806.2';
+import { CONFIG } from '../config.js?v=20260811.1';
 
 // 世界管理器 - 管理场景、地形、障碍物、据点
 export class World {
@@ -927,15 +927,17 @@ export class World {
         const targetX = objective.position?.x ?? objective.x ?? 0;
         const targetZ = objective.position?.z ?? objective.z ?? 0;
         const bias = team === 0 ? -1 : 1;
-        const samples = [
-            [18 * bias, 0],
-            [14 * bias, 10],
-            [14 * bias, -10],
-            [8 * bias, 14],
-            [8 * bias, -14],
-            [-12 * bias, 6],
-            [-12 * bias, -6],
-        ];
+        const samples = Array.isArray(objective.approachOffsets) && objective.approachOffsets.length
+            ? objective.approachOffsets
+            : [
+                [18 * bias, 0],
+                [14 * bias, 10],
+                [14 * bias, -10],
+                [8 * bias, 14],
+                [8 * bias, -14],
+                [-12 * bias, 6],
+                [-12 * bias, -6],
+            ];
 
         for (const [ox, oz] of samples) {
             const x = targetX + ox;
@@ -981,6 +983,31 @@ export class World {
         }
     }
 
+    setCapturePointState(cpOrName, state = {}) {
+        const cp = typeof cpOrName === 'string'
+            ? this.capturePoints.find(point => point.name === cpOrName)
+            : cpOrName;
+        if (!cp) return null;
+        if (state.team !== undefined) cp.team = state.team;
+        if (state.locked !== undefined) cp.locked = !!state.locked;
+        cp.capturingTeam = state.capturingTeam ?? -1;
+        cp.captureProgress = state.captureProgress ?? 0;
+        cp.contested = state.contested ?? false;
+        cp.friendlyCount = state.friendlyCount ?? 0;
+        cp.enemyCount = state.enemyCount ?? 0;
+        cp.friendlyWeight = state.friendlyWeight ?? 0;
+        cp.enemyWeight = state.enemyWeight ?? 0;
+        this._updateCapturePointColor(cp);
+        return cp;
+    }
+
+    resetCapturePoints() {
+        for (let i = 0; i < this.capturePoints.length; i++) {
+            const team = i === 0 ? 0 : (i === this.capturePoints.length - 1 ? 1 : -1);
+            this.setCapturePointState(this.capturePoints[i], { team, locked: false });
+        }
+    }
+
     // 更新据点逻辑
     // capturePointTimeOverride：模式可覆盖全局占领时长（如突破 30s）
     updateCapturePoints(dt, players) {
@@ -999,6 +1026,8 @@ export class World {
             // 统计据点内的双方人数
             let friendlyCount = 0;
             let enemyCount = 0;
+            let friendlyWeight = 0;
+            let enemyWeight = 0;
 
             for (const p of players) {
                 if (!p.alive) continue;
@@ -1006,13 +1035,16 @@ export class World {
                 const dx = p.position.x - cp.x;
                 const dz = p.position.z - cp.z;
                 if (Math.sqrt(dx * dx + dz * dz) < cp.radius) {
-                    if (p.team === 0) friendlyCount++;
-                    else enemyCount++;
+                    const weight = Number.isFinite(p.captureWeight) ? Math.max(0.1, p.captureWeight) : 1;
+                    if (p.team === 0) { friendlyCount++; friendlyWeight += weight; }
+                    else { enemyCount++; enemyWeight += weight; }
                 }
             }
 
             cp.friendlyCount = friendlyCount;
             cp.enemyCount = enemyCount;
+            cp.friendlyWeight = friendlyWeight;
+            cp.enemyWeight = enemyWeight;
             cp.contested = friendlyCount > 0 && enemyCount > 0;
 
             // 推进占领进度（换向时先中和旧进度，避免继承 90% 瞬占）
@@ -1041,9 +1073,9 @@ export class World {
             };
 
             if (friendlyCount > 0 && enemyCount === 0) {
-                pushCapture(0, friendlyCount);
+                pushCapture(0, friendlyWeight);
             } else if (enemyCount > 0 && friendlyCount === 0) {
-                pushCapture(1, enemyCount);
+                pushCapture(1, enemyWeight);
             } else if (friendlyCount > 0 && enemyCount > 0) {
                 // 争夺中，暂停
             } else {
@@ -1336,6 +1368,25 @@ export class World {
             this.terrain.rawHeightData = null;
             this.terrain.flatAreas = [];
         }
+
+        if (this._snow?.points) {
+            scene.remove(this._snow.points);
+            this._snow.points.geometry.dispose();
+            this._snow.points.material.dispose();
+            this._snow = null;
+            this._snowTime = 0;
+        }
+        if (this._volcanoCone) {
+            scene.remove(this._volcanoCone);
+            this._disposeMesh(this._volcanoCone);
+            this._volcanoCone = null;
+        }
+        for (const gun of this.staticGuns || []) {
+            if (!gun.mesh) continue;
+            scene.remove(gun.mesh);
+            this._disposeMesh(gun.mesh);
+        }
+        this.staticGuns = [];
 
         // 障碍物完整清理：含树木 Group 的叶冠、InstancedMesh 草、灌木和所有无碰撞装饰物。
         // 旧逻辑只遍历 getMeshes()，只会删树干，叶冠/草会跨地图残留在空中。

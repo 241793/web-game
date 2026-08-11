@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260811.1';
 import { createProceduralMaterial, createSvgCanvasTexture } from '../utils/VisualAssets.js?v=20260801.2';
 
 const _svgTextureCache = new Map();
@@ -153,7 +153,14 @@ export class CharacterModel {
             repeatY: 2,
             anisotropy: 4,
         }, { roughness: 0.86, metalness: 0.08, bumpScale: 0.018 });
-        const matLens = new THREE.MeshStandardMaterial({ color: 0x10242c, roughness: 0.08, metalness: 0.25, transparent: true, opacity: 0.72, depthWrite: false });
+        const matLens = new THREE.MeshBasicMaterial({
+            color: 0x72d8df,
+            transparent: true,
+            opacity: 0.28,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            toneMapped: false,
+        });
 
         // === 头部 ===
         const head = new THREE.Mesh(
@@ -520,6 +527,14 @@ export class CharacterModel {
             repeatY: 1,
             anisotropy: 4,
         }, { roughness: 0.5, metalness: 0.55, bumpScale: 0.008, useBump: true });
+        const matLens = new THREE.MeshBasicMaterial({
+            color: 0x72d8df,
+            transparent: true,
+            opacity: 0.28,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            toneMapped: false,
+        });
 
         switch (classType) {
             case 'sniper': {
@@ -532,14 +547,16 @@ export class CharacterModel {
                 body.position.set(0, 0, 0.05);
                 group.add(body);
                 // 狙击镜
-                const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.18), matDark);
+                const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.18, 12, 1, true), matDark);
                 scope.rotation.x = Math.PI / 2;
                 scope.position.set(0, 0.08, 0);
                 group.add(scope);
-                const scopeLens = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.005), 
-                    new THREE.MeshStandardMaterial({ color: 0x113311, transparent: true, opacity: 0.6 }));
-                scopeLens.rotation.x = Math.PI / 2;
-                scopeLens.position.set(0, 0.08, -0.09);
+                const scopeLens = new THREE.Mesh(
+                    new THREE.CircleGeometry(0.025, 12),
+                    matLens
+                );
+                scopeLens.rotation.y = Math.PI;
+                scopeLens.position.set(0, 0.08, -0.092);
                 group.add(scopeLens);
                 const mag = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.05), matStock);
                 mag.position.set(0, -0.07, 0.05);

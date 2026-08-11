@@ -1,5 +1,5 @@
 // 抢攻模式 - 攻方依次爆破 M-COM 目标，守方拆除
-import { GameMode } from '../GameMode.js?v=20260802.4';
+import { GameMode } from '../GameMode.js?v=20260811.1';
 
 export class RushMode extends GameMode {
     constructor(game, modeConfig) {
@@ -67,6 +67,15 @@ export class RushMode extends GameMode {
         }
     }
 
+    onPlayerDeath(dead, killer) {
+        // 攻方死亡扣票，守方不扣票（守方靠时间和据点防守）
+        if (!dead) return;
+        const team = dead.team !== undefined ? dead.team : 0;
+        if (team === this.attackerTeam) {
+            super.onPlayerDeath(dead, killer);
+        }
+    }
+
     update(dt) {
         super.update(dt);
         if (this.winner) return;
@@ -93,12 +102,22 @@ export class RushMode extends GameMode {
             if (cp.team === this.defenderTeam) {
                 this.armed = false;
                 this.fuseTimer = 0;
+                this._lastFuseWarn = 0;
                 if (this.game.hud) {
                     this.game.hud.showNotification('M-COM 炸药已拆除！', 2.5);
                 }
                 return;
             }
+            const prev = this.fuseTimer;
             this.fuseTimer -= dt;
+            // 引线倒计时播报：10 秒内每秒提示一次
+            if (this.fuseTimer <= 10) {
+                const sec = Math.ceil(this.fuseTimer);
+                if (sec !== this._lastFuseWarn && sec > 0) {
+                    this._lastFuseWarn = sec;
+                    this.game.hud?.showNotification?.(`M-COM 爆破倒计时 ${sec}`, 0.9);
+                }
+            }
             if (this.fuseTimer <= 0) {
                 this._advanceMcom(cp);
             }
@@ -111,6 +130,33 @@ export class RushMode extends GameMode {
         } else if (team === this.defenderTeam && this.armed) {
             // 拆除在 update 中检测
         }
+    }
+
+    onTimeExpired() {
+        if (!this.winner) this.winner = this.defenderTeam === 0 ? 'friendly' : 'enemy';
+    }
+
+    // 攻方在已爆破/已控制的最靠前据点部署；守方在当前及下一 M-COM 附近部署
+    getDeployPoint(team) {
+        const cps = this.game.world?.capturePoints || [];
+        if (team === this.attackerTeam) {
+            // 从当前目标往回找最靠前的攻方控制点
+            for (let i = Math.min(this.currentMcom - 1, cps.length - 1); i >= 0; i--) {
+                const cp = cps[i];
+                if (cp && cp.team === this.attackerTeam) return cp;
+            }
+            return this.game.world?.getTeamSpawnPoint?.(team) || null;
+        }
+        // 守方在当前 M-COM 附近坚守
+        const current = cps[this.currentMcom];
+        return current || this.game.world?.getTeamSpawnPoint?.(team) || null;
+    }
+
+    getPriorityTarget(team) {
+        const cps = this.game.world?.capturePoints || [];
+        const current = cps[this.currentMcom];
+        if (!current) return null;
+        return current;
     }
 
     checkGameOver() {

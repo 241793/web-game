@@ -19,10 +19,20 @@ body {
     font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
     background: #000;
     color: #fff;
+    /* iOS：禁止页面滚动/手势，确保 touchmove 持续派发给游戏 */
+    touch-action: none;
+    overscroll-behavior: none;
+    position: fixed;
+    width: 100%;
+    height: 100%;
 }
 
 canvas {
     display: block;
+    /* iOS：禁止画布滚动/缩放手势，触摸全部交给游戏 */
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
 }
 
 .hidden {
@@ -623,6 +633,71 @@ canvas {
     position: relative;
 }
 
+.specialization-select {
+    width: 100%;
+    margin: -12px auto 24px;
+    padding: 14px 16px;
+    background: rgba(8, 14, 20, 0.72);
+    border: 1px solid rgba(75, 181, 255, 0.28);
+    border-radius: 8px;
+    text-align: left;
+}
+
+.specialization-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 10px;
+    color: #81c8ff;
+    font-size: 13px;
+    letter-spacing: 1px;
+}
+
+#specializationProgress {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 11px;
+    letter-spacing: 0;
+}
+
+.specialization-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+.specialization-option {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 6px;
+    color: #fff;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.specialization-option:hover,
+.specialization-option.selected {
+    background: rgba(57, 159, 230, 0.15);
+    border-color: #4ab5ff;
+    box-shadow: 0 0 12px rgba(50, 165, 245, 0.2);
+}
+
+.specialization-name {
+    color: #9dd6ff;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.specialization-level {
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
 .weapon-stat-bars i::after {
     content: '';
     position: absolute;
@@ -640,6 +715,80 @@ canvas {
 
 .weapon-stat-bars i:nth-child(3) {
     background: linear-gradient(90deg, rgba(150, 230, 140, 0.85), rgba(90, 180, 90, 0.55));
+}
+
+/* 瞄准镜选择（沿用武器卡片视觉语言） */
+.optic-select {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.optic-select-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+    letter-spacing: 1px;
+}
+
+#opticHint {
+    color: #ff8c00;
+    font-size: 11px;
+    letter-spacing: 0;
+}
+
+.optic-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+}
+
+.optic-option {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.optic-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 140, 0, 0.55);
+    transform: translateY(-1px);
+}
+
+.optic-option.selected {
+    background: rgba(255, 140, 0, 0.16);
+    border-color: #ff8c00;
+    box-shadow: 0 0 12px rgba(255, 140, 0, 0.22);
+}
+
+.optic-option-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.optic-option-zoom {
+    font-size: 11px;
+    color: #ff8c00;
+    font-weight: 600;
+}
+
+.optic-option-tag {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
 }
 
 /* ========== 设置 ========== */
@@ -1033,6 +1182,63 @@ kbd {
     text-shadow: 0 0 8px rgba(120, 200, 255, 0.55);
 }
 
+/* 瞄具标签（武器名下方，精简） */
+.weapon-optic {
+    font-size: 11px;
+    color: rgba(255, 179, 51, 0.85);
+    letter-spacing: 1.5px;
+    margin-bottom: 3px;
+    text-transform: uppercase;
+}
+
+/* 高倍镜遮罩按瞄具风格切换 */
+#scopeOverlay[data-scope-style="combat"] {
+    background: radial-gradient(
+        circle at center,
+        transparent 0,
+        transparent calc(38vh - 2px),
+        rgba(0, 0, 0, 0.97) calc(38vh + 2px),
+        rgba(0, 0, 0, 0.97) 100%
+    );
+}
+
+#scopeOverlay[data-scope-style="combat"] .scope-circle {
+    width: 76vh;
+    height: 76vh;
+}
+
+/* combat 镜隐藏密位点，只保留十字线+中心点 */
+#scopeOverlay[data-scope-style="combat"] .scope-mil-dot {
+    display: none;
+}
+
+/* sniper 风格沿用默认全圆遮罩与密位点 */
+
+/* 互动动作列表 */
+.interaction-actions {
+    display: inline-flex;
+    gap: 14px;
+    align-items: center;
+}
+
+.interaction-entry {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.interaction-entry kbd {
+    display: inline-block;
+    min-width: 18px;
+    padding: 2px 6px;
+    background: rgba(255, 140, 0, 0.85);
+    color: #1a0d00;
+    border-radius: 3px;
+    font-size: 13px;
+    font-weight: 800;
+    text-align: center;
+}
+
 .weapon-mode {
     display: inline-block;
     min-width: 46px;
@@ -1335,16 +1541,101 @@ kbd {
     top: 72px;
     left: 50%;
     transform: translateX(-50%);
-    background: linear-gradient(180deg, rgba(12, 16, 20, 0.55), rgba(8, 10, 12, 0.35));
-    padding: 5px 22px;
+    min-width: min(520px, 72vw);
+    background: linear-gradient(180deg, rgba(12, 16, 20, 0.7), rgba(8, 10, 12, 0.48));
+    padding: 5px 22px 7px;
     border: 1px solid rgba(255, 180, 95, 0.28);
     border-top: 1px solid rgba(255, 179, 51, 0.45);
     clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 100%, 0 100%);
     font-size: 13px;
     letter-spacing: 0.5px;
     color: #ffd18b;
+    text-align: center;
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
 }
+
+.director-panel {
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 11px;
+}
+
+.director-mission-row,
+.director-status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+#directorMissionText { color: #fff; font-weight: 700; }
+#directorMissionTime { color: #ffbd59; font-family: 'Courier New', monospace; }
+.director-status-row { margin-top: 4px; color: rgba(255, 255, 255, 0.65); }
+#directorRequisition { color: #72c4ff; }
+#directorSpecialization { color: #b9dfff; }
+#directorModeStatus { color: #ffcb80; }
+
+.director-progress {
+    height: 3px;
+    margin-top: 4px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+}
+
+.director-progress i {
+    display: block;
+    width: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #3ca9f2, #ffb23e);
+    transition: width 0.2s linear;
+}
+
+.support-panel {
+    position: fixed;
+    right: 24px;
+    bottom: 255px;
+    width: 250px;
+    z-index: 170;
+    padding: 10px;
+    background: rgba(7, 11, 16, 0.92);
+    border: 1px solid rgba(75, 181, 255, 0.4);
+    pointer-events: auto;
+}
+
+.support-panel-header,
+.support-option {
+    display: grid;
+    align-items: center;
+}
+
+.support-panel-header {
+    grid-template-columns: 1fr auto;
+    margin-bottom: 7px;
+    color: #8fd1ff;
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.support-option {
+    width: 100%;
+    grid-template-columns: 28px 1fr auto;
+    gap: 8px;
+    margin-top: 5px;
+    padding: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.support-option:hover { border-color: #4ab5ff; background: rgba(74, 181, 255, 0.12); }
+.support-option.disabled { opacity: 0.48; }
+.support-key { color: #ffbd59; font-weight: 800; }
+.support-option strong { color: #76c8ff; font-size: 11px; }
+.support-panel-hint { margin-top: 8px; color: rgba(255, 255, 255, 0.45); font-size: 10px; }
 
 /* 击杀提示（右上，小地图下方，战地风格 kill feed） */
 #killFeed {
@@ -2036,12 +2327,44 @@ kbd {
 /* 换弹指示 */
 #reloadIndicator {
     position: absolute;
-    bottom: 120px;
+    top: calc(50% + 38px);
     left: 50%;
     transform: translateX(-50%);
-    color: #ff8c00;
-    font-size: 18px;
-    animation: reloadFlash 0.5s ease infinite;
+    width: 112px;
+    color: rgba(225, 242, 236, 0.92);
+    font-size: 10px;
+    letter-spacing: 0;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+    pointer-events: none;
+}
+
+.reload-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.reload-label {
+    color: #8ff0bd;
+    font-weight: 700;
+}
+
+.reload-track {
+    height: 3px;
+    overflow: hidden;
+    background: rgba(5, 12, 10, 0.72);
+    border: 1px solid rgba(176, 225, 205, 0.32);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+#reloadProgress {
+    width: 100%;
+    height: 100%;
+    transform: scaleX(0);
+    transform-origin: left center;
+    background: #78e5ae;
+    box-shadow: 0 0 7px rgba(82, 240, 164, 0.65);
 }
 
 /* 死亡画面 */
@@ -2281,6 +2604,47 @@ kbd {
 .go-final-score strong {
     color: var(--bf-accent);
     font-size: 20px;
+    margin: 0 4px;
+}
+
+.go-mode-line {
+    font-size: 14px;
+    color: rgba(255, 179, 51, 0.85);
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+}
+
+.go-contrib {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    justify-content: center;
+    max-width: 460px;
+    margin: 0 auto 16px;
+}
+
+.go-contrib-item {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 1px;
+}
+
+.go-contrib-item strong {
+    color: #cfe6d6;
+    font-size: 15px;
+    margin-left: 3px;
+}
+
+.go-ticket-line {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+}
+
+.go-ticket-line strong {
+    color: #8ff0bd;
+    font-size: 17px;
     margin: 0 4px;
 }
 
@@ -2622,6 +2986,51 @@ kbd {
     pointer-events: auto;
 }
 
+#mobileTopButtons {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    display: flex;
+    gap: 8px;
+    pointer-events: none;
+}
+
+#mobileTopButtons .mobile-btn {
+    pointer-events: auto;
+}
+
+#mobileTopButtons .top-btn {
+    width: 50px;
+    height: 36px;
+    border-radius: 8px;
+    font-size: 11px;
+}
+
+@media (max-width: 800px) {
+    #objectiveInfo {
+        top: 58px;
+        min-width: 0;
+        width: min(92vw, 520px);
+        padding-inline: 12px;
+    }
+
+    .director-status-row {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 3px 10px;
+    }
+
+    .support-panel {
+        right: 12px;
+        bottom: 210px;
+        width: min(250px, 72vw);
+    }
+
+    .specialization-options {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* 虚拟摇杆（左下） */
 #joystickArea {
     position: absolute;
@@ -2734,21 +3143,6 @@ kbd {
 }
 
 /* 左上/右上快捷按钮 */
-#mobileTopButtons {
-    position: absolute;
-    top: 10px;
-    left: 0;
-    right: 0;
-    display: flex;
-    justify-content: space-between;
-    padding: 0 10px;
-    pointer-events: none;
-}
-
-#mobileTopButtons .mobile-btn {
-    pointer-events: auto;
-}
-
 .top-btn {
     width: 42px;
     height: 42px;
@@ -2841,6 +3235,212 @@ kbd {
         height: 112px;
     }
 }
+
+/* ===== 移动端 HUD 全面缩放：缩小面板、四角布局、隐藏常驻占屏 ===== */
+/* 布局网格（横屏）：
+   顶部两端 Tab/⏸，顶部中央通知
+   左上血量 / 右上武器+小地图 / 右上小地图下方击杀
+   左下摇杆 / 右下射击与动作按钮
+   中央只留准星 —— 最大化视野
+*/
+
+/* 次要常驻 UI：移动端隐藏（目标/罗盘/小队），比分保留为极简小条 */
+.is-mobile #objectiveInfo,
+.is-mobile #compassBar,
+.is-mobile #squadPanel {
+    display: none !important;
+}
+
+/* 顶部中央极简比分 */
+.is-mobile #scorePanel {
+    top: 6px;
+    padding: 3px 14px;
+    gap: 12px;
+    background: linear-gradient(180deg, rgba(10, 14, 20, 0.55), rgba(6, 10, 14, 0.35));
+    clip-path: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+}
+.is-mobile .team-name { display: none; }
+.is-mobile .team-points { font-size: 15px; }
+.is-mobile .score-timer { font-size: 13px; }
+.is-mobile .team-tickets { font-size: 9px; }
+.is-mobile .team-score { min-width: 36px; }
+.is-mobile .score-center { min-width: 0; }
+
+/* 顶部两端快捷按钮 */
+.is-mobile #mobileTopButtons { top: 6px; padding: 0 8px; }
+.is-mobile .top-btn { width: 32px; height: 32px; font-size: 10px; background: rgba(0,0,0,0.35); }
+
+/* 通知：顶部中央，两端按钮之间 */
+.is-mobile #notification {
+    top: 12px;
+    font-size: 11px;
+    padding: 3px 10px;
+    max-width: 55vw;
+}
+
+/* 左上：血量（紧凑小条） */
+.is-mobile #healthPanel {
+    top: 44px;
+    left: 8px;
+    bottom: auto;
+    width: 138px;
+    padding: 5px 8px 4px;
+    background: linear-gradient(100deg, rgba(10, 14, 20, 0.5), rgba(10, 14, 20, 0.2) 85%, transparent);
+    border-left: 2px solid var(--bf-accent);
+}
+.is-mobile .health-bar-container { height: 12px; }
+.is-mobile #healthText { font-size: 11px; }
+.is-mobile .armor-info { margin-top: 1px; font-size: 9px; }
+.is-mobile .stamina-bar-container { height: 4px; margin-top: 2px; }
+.is-mobile .stamina-bar { height: 4px; }
+
+/* 右上：武器+弹药 */
+.is-mobile #weaponPanel {
+    top: 44px;
+    right: 8px;
+    bottom: auto;
+    min-width: 0;
+    padding: 5px 8px 4px;
+    background: linear-gradient(260deg, rgba(10, 14, 20, 0.5), rgba(10, 14, 20, 0.2) 85%, transparent);
+    border-right: 2px solid var(--bf-accent);
+}
+.is-mobile .weapon-name { font-size: 11px; letter-spacing: 1px; margin-bottom: 1px; }
+.is-mobile .weapon-mode { display: none; }
+.is-mobile .ammo-info { font-size: 18px; }
+.is-mobile .ammo-reserve { font-size: 13px; }
+.is-mobile .weapon-slots { display: none; }
+.is-mobile .gadget-panel { margin-top: 3px; padding: 3px 6px; }
+.is-mobile .gadget-name { font-size: 9px; }
+.is-mobile .gadget-icon { font-size: 14px; }
+.is-mobile .gadget-cooldown-bar { height: 3px; }
+.is-mobile .gadget-key { width: 16px; height: 16px; font-size: 10px; }
+
+/* 右上小地图：武器下方，稍留间距 */
+.is-mobile #minimap {
+    top: 118px;
+    right: 8px;
+    width: 100px;
+    height: 100px;
+    clip-path: none;
+    opacity: 0.8;
+}
+
+/* 右上击杀提示：小地图下方 */
+.is-mobile #killFeed {
+    top: 226px;
+    right: 8px;
+    width: min(230px, 38vw);
+    max-height: 100px;
+    gap: 3px;
+    mask-image: linear-gradient(180deg, #000 0%, #000 70%, transparent 100%);
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 70%, transparent 100%);
+}
+.is-mobile .kill-msg {
+    font-size: 10px;
+    padding: 2px 7px 2px 9px;
+    background: linear-gradient(260deg, rgba(6, 10, 14, 0.55), rgba(6, 10, 14, 0.22));
+    box-shadow: none;
+}
+.is-mobile .kill-msg .weapon-name { max-width: 60px; font-size: 9px; }
+.is-mobile .kill-msg .kill-tag { font-size: 8px; padding: 0 3px; }
+
+/* 连杀提示：缩小上移 */
+.is-mobile #killstreakPopup { top: 24%; }
+.is-mobile #killstreakPopup .ks-title { font-size: 19px; }
+.is-mobile #killstreakPopup .ks-subtitle { font-size: 10px; }
+
+/* 击杀确认条：缩小 */
+.is-mobile #killConfirm {
+    bottom: 15%;
+    min-width: 190px;
+    padding: 5px 16px 7px;
+}
+.is-mobile .kc-killer, .is-mobile .kc-victim { font-size: 12px; }
+.is-mobile .kc-weapon { font-size: 14px; padding: 0 10px; }
+.is-mobile .kc-label { font-size: 9px; }
+.is-mobile .kc-tag { font-size: 8px; }
+.is-mobile .kc-score { font-size: 10px; }
+
+/* 伤害数字缩小 */
+.is-mobile .damage-number { font-size: 12px; }
+
+/* 准星略放大便于触屏命中 */
+.is-mobile #crosshair { width: 44px; height: 44px; }
+
+/* 互动提示：上移避开按钮区 */
+.is-mobile #interactionPrompt {
+    bottom: 40%;
+    font-size: 12px;
+}
+
+/* 载具 HUD：右下缩小 */
+.is-mobile #vehicleHUD { right: 8px; bottom: 8px; min-width: 200px; padding: 5px 10px; }
+.is-mobile .vh-bottom-row { gap: 10px; }
+.is-mobile #vehicleSpeed, .is-mobile #vehicleAltitude { font-size: 13px; }
+
+/* 移动端按钮与摇杆最终尺寸（贴边更小更透明） */
+.is-mobile #joystickArea { bottom: 12px; left: 12px; width: 104px; height: 104px; opacity: 0.8; }
+.is-mobile #joystickBase { width: 104px; height: 104px; border-width: 1.5px; }
+.is-mobile #joystickThumb { width: 42px; height: 42px; }
+.is-mobile #mobileStance { bottom: 126px; left: 12px; gap: 5px; }
+.is-mobile #mobileButtons { bottom: 12px; right: 10px; grid-template-columns: repeat(3, 40px); gap: 5px; }
+.is-mobile .mobile-btn {
+    width: 42px;
+    height: 42px;
+    font-size: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border-width: 1.5px;
+}
+.is-mobile .small-btn { width: 36px; height: 36px; font-size: 9px; }
+.is-mobile .shoot-btn { width: 54px; height: 54px; font-size: 12px; grid-row: span 2; }
+.is-mobile #mobileWeaponSwitch { right: 10px; bottom: 178px; gap: 5px; }
+.is-mobile .weapon-btn { width: 32px; height: 32px; font-size: 10px; }
+
+/* 竖屏（高 > 460）时顶部留更多空间，避免按钮与血量重叠 */
+@media (min-height: 460px) {
+    .is-mobile #healthPanel { top: 56px; }
+    .is-mobile #weaponPanel { top: 56px; }
+    .is-mobile #minimap { top: 126px; }
+    .is-mobile #killFeed { top: 234px; }
+}
+
+/* 移动端常驻小提示：保持在准心下方，不与操作按钮重叠 */
+.is-mobile #reloadIndicator {
+    top: calc(50% + 34px);
+    bottom: auto;
+    width: 96px;
+    font-size: 9px;
+    background: none;
+    padding: 0;
+    border-radius: 0;
+}
+.is-mobile #spawnProtectionIndicator {
+    bottom: 30%;
+    font-size: 12px;
+    background: rgba(0, 120, 200, 0.25);
+    padding: 2px 12px;
+    border-radius: 3px;
+}
+.is-mobile #leanIndicator {
+    bottom: 28%;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.35);
+    padding: 2px 10px;
+    border-radius: 3px;
+}
+
+/* 移动端部署界面：缩小内容，避免横向溢出 */
+.is-mobile .deploy-content {
+    width: min(560px, 94vw);
+    padding: 18px 16px;
+}
+.is-mobile .deploy-point-card { min-width: 96px; padding: 10px 12px; }
+.is-mobile .deploy-point-card .dp-letter { font-size: 20px; }
+.is-mobile .dp-name { font-size: 11px; }
+.is-mobile .deploy-squad-member { font-size: 12px; padding: 4px 8px; }
+.is-mobile .deploy-content h2 { font-size: 18px; }
 
 /* ========== 部署/重生界面 ========== */
 #deployScreen {
@@ -3205,6 +3805,22 @@ kbd {
     color: #111;
     border-color: rgba(255, 230, 160, 0.7);
     box-shadow: 0 0 14px rgba(255, 100, 32, 0.5);
+}
+.world-marker .wm-icon.mission {
+    background: rgba(255, 179, 51, 0.95);
+    color: #111;
+    border-color: rgba(255, 255, 255, 0.65);
+    box-shadow: 0 0 16px rgba(255, 150, 40, 0.6);
+}
+.world-marker .wm-icon.rally {
+    background: rgba(38, 148, 230, 0.94);
+    color: #fff;
+    border-color: rgba(170, 225, 255, 0.7);
+}
+.world-marker .wm-icon.smoke {
+    background: rgba(145, 153, 160, 0.9);
+    color: #fff;
+    border-color: rgba(225, 230, 235, 0.55);
 }
 
 .world-marker .wm-label {

@@ -1,4 +1,4 @@
-import { CONFIG } from '../config.js?v=20260806.2';
+import { CONFIG } from '../config.js?v=20260811.1';
 
 // 菜单管理器 - 管理所有菜单界面
 export class MenuManager {
@@ -16,6 +16,9 @@ export class MenuManager {
         };
         this.selectedClass = null;
         this.selectedPrimaryByClass = {};
+        this.selectedSpecializationByClass = {};
+        this.selectedOpticByWeapon = {};
+        this._specializationStateProvider = null;
         // 地图/模式选择状态
         this.selectedMapId = 'default';
         this.selectedModeId = 'conquest';
@@ -371,6 +374,103 @@ export class MenuManager {
         const secondary = CONFIG.WEAPONS[classConfig.secondary];
         secondaryEl.textContent = secondary ? secondary.name : classConfig.secondary;
         panel.classList.remove('hidden');
+        this._renderOpticSelect(classType, selected);
+        this._renderSpecializationSelect(classType);
+    }
+
+    // 渲染瞄具选择（随主武器联动，仅显示该武器兼容的瞄具）
+    _renderOpticSelect(classType, weaponId) {
+        const panel = document.getElementById('opticSelect');
+        const optionsEl = document.getElementById('opticOptions');
+        const hintEl = document.getElementById('opticHint');
+        if (!panel || !optionsEl) return;
+
+        const weapon = CONFIG.WEAPONS[weaponId];
+        if (!weapon || !weapon.optics || weapon.optics.length === 0) {
+            panel.classList.add('hidden');
+            return;
+        }
+        panel.classList.remove('hidden');
+
+        // 按武器记忆瞄具；不兼容时回退到默认
+        this.selectedOpticByWeapon = this.selectedOpticByWeapon || {};
+        const stored = this.selectedOpticByWeapon[weaponId];
+        const selected = weapon.optics.includes(stored) ? stored : (weapon.defaultOptic || weapon.optics[0]);
+        this.selectedOpticByWeapon[weaponId] = selected;
+
+        if (hintEl) {
+            const opticCfg = CONFIG.OPTICS[selected];
+            hintEl.textContent = opticCfg ? `${opticCfg.name} · ${opticCfg.tag}` : '随武器兼容';
+        }
+
+        optionsEl.innerHTML = '';
+        for (const opticId of weapon.optics) {
+            const optic = CONFIG.OPTICS[opticId];
+            if (!optic) continue;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'optic-option' + (opticId === selected ? ' selected' : '');
+            button.dataset.optic = opticId;
+            button.innerHTML = `
+                <span class="optic-option-name">${optic.name}</span>
+                <span class="optic-option-zoom">${optic.zoom}x</span>
+                <span class="optic-option-tag">${optic.tag}</span>
+            `;
+            button.addEventListener('click', () => {
+                this.selectedOpticByWeapon[weaponId] = opticId;
+                this._renderOpticSelect(classType, weaponId);
+                this._playSound('hover');
+            });
+            optionsEl.appendChild(button);
+        }
+    }
+
+    setSpecializationStateProvider(provider) {
+        this._specializationStateProvider = typeof provider === 'function' ? provider : null;
+        if (this.selectedClass) this._renderSpecializationSelect(this.selectedClass);
+    }
+
+    _renderSpecializationSelect(classType) {
+        const panel = document.getElementById('specializationSelect');
+        const optionsEl = document.getElementById('specializationOptions');
+        const progressEl = document.getElementById('specializationProgress');
+        const routes = CONFIG.CLASS_SPECIALIZATIONS?.[classType];
+        if (!panel || !optionsEl || !routes) {
+            panel?.classList.add('hidden');
+            return;
+        }
+
+        const liveState = this._specializationStateProvider?.(classType) || null;
+        const routeIds = Object.keys(routes);
+        const selected = this.selectedSpecializationByClass[classType] || liveState?.route || routeIds[0];
+        this.selectedSpecializationByClass[classType] = selected;
+        if (progressEl) {
+            const xp = liveState?.xp || 0;
+            const threshold = liveState?.threshold || CONFIG.BATTLEFIELD_DIRECTOR.specialization.level2XP;
+            progressEl.textContent = liveState
+                ? `本局 Lv.${liveState.level} · ${xp}/${threshold} XP`
+                : '一级立即生效 · 本局可升至二级';
+        }
+
+        optionsEl.innerHTML = '';
+        for (const [routeId, route] of Object.entries(routes)) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'specialization-option' + (routeId === selected ? ' selected' : '');
+            button.dataset.specialization = routeId;
+            button.innerHTML = `
+                <span class="specialization-name">${route.name}</span>
+                <span class="specialization-level">I · ${route.level1}</span>
+                <span class="specialization-level">II · ${route.level2}</span>
+            `;
+            button.addEventListener('click', () => {
+                this.selectedSpecializationByClass[classType] = routeId;
+                this._renderSpecializationSelect(classType);
+                this._playSound('hover');
+            });
+            optionsEl.appendChild(button);
+        }
+        panel.classList.remove('hidden');
     }
 
     _formatWeaponStats(weapon) {
@@ -381,9 +481,15 @@ export class MenuManager {
     getSelectedLoadout(classType = this.selectedClass) {
         const classConfig = CONFIG.CLASSES[classType];
         if (!classConfig) return null;
+        const primary = this.selectedPrimaryByClass[classType] || classConfig.primary;
+        const weapon = CONFIG.WEAPONS[primary];
+        const optic = (this.selectedOpticByWeapon && this.selectedOpticByWeapon[primary])
+            || weapon?.defaultOptic || weapon?.optics?.[0] || null;
         return {
-            primary: this.selectedPrimaryByClass[classType] || classConfig.primary,
+            primary,
             secondary: classConfig.secondary,
+            optic,
+            specialization: this.selectedSpecializationByClass[classType] || Object.keys(CONFIG.CLASS_SPECIALIZATIONS?.[classType] || {})[0] || null,
         };
     }
 
@@ -423,13 +529,43 @@ export class MenuManager {
 
         const statsEl = document.getElementById('gameOverStats');
         const kd = stats.deaths > 0 ? (stats.kills / stats.deaths).toFixed(2) : stats.kills.toFixed(0);
+
+        // 非击杀贡献（仅展示有数值的项）
+        const contributions = [
+            ['占领', stats.captures],
+            ['复活', stats.revives],
+            ['治疗', stats.heals],
+            ['补给', stats.resupplies],
+            ['维修', stats.repairs],
+            ['侦察助攻', stats.spotAssists],
+            ['摧毁载具', stats.vehiclesDestroyed],
+            ['摧毁设施', stats.objectivesDestroyed],
+            ['任务完成', stats.missionsCompleted],
+            ['工事建造', stats.fortificationsBuilt],
+        ].filter(([, v]) => (v || 0) > 0);
+        const contribHtml = contributions.length
+            ? `<div class="go-contrib">${contributions.map(([label, v]) => `<span class="go-contrib-item">${label} <strong>${v}</strong></span>`).join('')}</div>`
+            : '';
+
+        // 票数/模式结果
+        let ticketLine = '';
+        if (stats.friendlyTickets != null && stats.enemyTickets != null) {
+            ticketLine = `<div class="go-ticket-line">剩余票数 <strong>${stats.friendlyTickets}</strong> : <strong>${stats.enemyTickets}</strong></div>`;
+        }
+        const modeLine = stats.modeName
+            ? `<div class="go-mode-line">${stats.modeName}${stats.modeHint ? ` · ${stats.modeHint}` : ''}</div>`
+            : '';
+
         statsEl.innerHTML = `
+            ${modeLine}
             <div class="go-stat-grid">
                 <div class="go-stat"><span class="go-num">${stats.kills}</span><span class="go-label">击杀</span></div>
                 <div class="go-stat"><span class="go-num">${stats.deaths}</span><span class="go-label">死亡</span></div>
                 <div class="go-stat"><span class="go-num">${stats.assists || 0}</span><span class="go-label">助攻</span></div>
                 <div class="go-stat"><span class="go-num">${kd}</span><span class="go-label">K/D</span></div>
             </div>
+            ${contribHtml}
+            ${ticketLine}
             <div class="go-final-score">最终比分 <strong>${stats.friendlyScore}</strong> : <strong>${stats.enemyScore}</strong></div>
         `;
     }

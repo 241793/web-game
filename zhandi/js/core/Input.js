@@ -20,6 +20,11 @@ export class InputManager {
         // 移动端检测
         this.isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ||
             ('ontouchstart' in window && window.innerWidth < 1024);
+        // 标记 body，供 CSS 针对移动端缩放 HUD（缩小面板、按钮贴边、隐藏常驻占屏 UI）
+        if (this.isMobile) {
+            document.documentElement.classList.add('is-mobile');
+            document.body.classList.add('is-mobile');
+        }
 
         // 触控状态
         this._touchState = {
@@ -278,15 +283,37 @@ export class InputManager {
 
         // === 右侧滑动（视角控制）===
         // 在 document 层监听：gameHUD 是 pointer-events:none，触摸不会派发到它，导致无法滑动视角。
-        // 排除摇杆/按钮/UI 面板后，其余触摸视为视角滑动。
-        const isUI = (el) => {
-            if (!el || !el.closest) return false;
-            return !!(el.closest('.mobile-btn') || el.closest('#joystickArea') ||
-                el.closest('#scorePanel') || el.closest('#healthPanel') || el.closest('#weaponPanel') ||
-                el.closest('#minimap') || el.closest('#killFeed') || el.closest('#squadPanel') ||
-                el.closest('#killConfirm') || el.closest('#interactionPrompt') || el.closest('#vehicleHUD') ||
-                el.closest('#mortarMap') || el.closest('#deployScreen') || el.closest('#scoreboard') ||
-                el.closest('#downedOverlay') || el.closest('#notification'));
+        // 用坐标命中检测排除按钮/摇杆/UI 面板，其余触摸视为视角滑动（iOS elementFromPoint 不可靠）。
+        const controlsEl = document.getElementById('mobileControls');
+        const isInRect = (x, y, rect) =>
+            !!rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+
+        const buttonRects = () => {
+            const rects = [];
+            if (controlsEl) {
+                controlsEl.querySelectorAll('.mobile-btn, #joystickArea').forEach((el) => {
+                    rects.push(el.getBoundingClientRect());
+                });
+            }
+            return rects;
+        };
+        const isUI = (x, y) => {
+            // 按钮/摇杆区域
+            for (const r of buttonRects()) {
+                if (isInRect(x, y, r)) return true;
+            }
+            // 全屏 UI 面板（部署/观战/得分板/迫击炮地图等）
+            const panelIds = ['scorePanel', 'healthPanel', 'weaponPanel', 'minimap', 'killFeed', 'squadPanel',
+                'killConfirm', 'interactionPrompt', 'vehicleHUD', 'mortarMap', 'deployScreen',
+                'scoreboard', 'downedOverlay', 'notification', 'vehicleTurretIndicator'];
+            for (const id of panelIds) {
+                const el = document.getElementById(id);
+                if (el && !el.classList.contains('hidden')) {
+                    const r = el.getBoundingClientRect();
+                    if (isInRect(x, y, r)) return true;
+                }
+            }
+            return false;
         };
         const rightZone = (x) => x > window.innerWidth * 0.35;
 
@@ -294,15 +321,19 @@ export class InputManager {
             if (this._joystickTouchId !== null) return;
             for (const touch of e.changedTouches) {
                 if (!rightZone(touch.clientX) || this._lookTouchId !== null) continue;
-                const target = document.elementFromPoint(touch.clientX, touch.clientY);
-                if (isUI(target)) continue;
+                if (isUI(touch.clientX, touch.clientY)) continue;
                 this._lookTouchId = touch.identifier;
                 this._lookLastX = touch.clientX;
                 this._lookLastY = touch.clientY;
+                // 锁定该手势，防止 iOS 把它当滚动/缩放
+                if (e.cancelable) e.preventDefault();
             }
-        }, { passive: true });
+        }, { passive: false });
 
+        // 注意：iOS Safari 在页面不可滚动时不会持续派发 touchmove，必须 passive:false + preventDefault
         document.addEventListener('touchmove', (e) => {
+            if (this._lookTouchId === null) return;
+            let handled = false;
             for (const touch of e.changedTouches) {
                 if (touch.identifier !== this._lookTouchId) continue;
                 const dx = touch.clientX - this._lookLastX;
@@ -312,8 +343,11 @@ export class InputManager {
                 const effSens = this.sensitivity * this._aimSensitivityScale;
                 this._touchState.lookDeltaX += Math.max(-this._maxMouseStep, Math.min(this._maxMouseStep, dx * effSens * 0.003));
                 this._touchState.lookDeltaY += Math.max(-this._maxMouseStep, Math.min(this._maxMouseStep, dy * effSens * 0.003));
+                handled = true;
             }
-        }, { passive: true });
+            // 阻止页面滚动/手势，确保后续 touchmove 持续派发
+            if (handled) e.preventDefault();
+        }, { passive: false });
 
         const lookEnd = (e) => {
             for (const touch of e.changedTouches) {
@@ -341,6 +375,7 @@ export class InputManager {
         this._bindMobileButton('mbtnSpecial', () => { if (this.onKeyDown) this.onKeyDown('Digit5', {}); }, null);
         this._bindMobileButton('mbtnWeapon1', () => { if (this.onKeyDown) this.onKeyDown('Digit1', {}); this._updateWeaponBtnActive(1); }, null);
         this._bindMobileButton('mbtnWeapon2', () => { if (this.onKeyDown) this.onKeyDown('Digit2', {}); this._updateWeaponBtnActive(2); }, null);
+        this._bindMobileButton('mbtnSupport', () => { if (this.onKeyDown) this.onKeyDown('KeyB', {}); }, null);
         this._bindMobileButton('mbtnScoreboard', () => { if (this.onKeyDown) this.onKeyDown('Tab', { preventDefault: () => {} }); }, () => { if (this.onKeyUp) this.onKeyUp('Tab', {}); });
         this._bindMobileButton('mbtnPause', () => { if (this.onKeyDown) this.onKeyDown('Escape', {}); }, null);
         this._bindMobileButton('mbtnVehicleView', () => { if (this.onKeyDown) this.onKeyDown('KeyV', {}); }, null);

@@ -97,6 +97,8 @@ export const CONFIG = {
             bulletSpreadRecover: 4,// 扩散恢复速度
             soundType: 'rifle_light',
             fireModes: ['auto', 'semi'],
+            defaultOptic: 'holo',
+            optics: ['iron', 'reflex', 'holo', 'combat3x'],
         },
         AK12: {
             name: 'AK-12',
@@ -127,6 +129,8 @@ export const CONFIG = {
             fireModes: ['auto', 'semi'],
             penetration: 0.10,      // 7.62x39mm 口径，穿透力强于标准5.56mm步枪
             headshotMultiplier: 2.1, // 高伤害步枪爆头加成
+            defaultOptic: 'reflex',
+            optics: ['iron', 'reflex', 'holo', 'combat3x'],
         },
         SCAR_H: {
             name: 'SCAR-H',
@@ -157,6 +161,8 @@ export const CONFIG = {
             fireModes: ['auto', 'semi'],
             penetration: 0.10,      // 7.62mm 口径，穿透力强于标准步枪
             headshotMultiplier: 2.2, // 高伤害步枪爆头加成
+            defaultOptic: 'combat3x',
+            optics: ['iron', 'reflex', 'holo', 'combat3x'],
         },
         // === 冲锋枪 ===
         MP5: {
@@ -186,6 +192,8 @@ export const CONFIG = {
             bulletSpreadRecover: 5,
             soundType: 'smg',
             fireModes: ['auto', 'semi'],
+            defaultOptic: 'reflex',
+            optics: ['iron', 'reflex', 'holo'],
         },
         UMP45: {
             name: 'UMP-45',
@@ -216,6 +224,8 @@ export const CONFIG = {
             fireModes: ['auto', 'semi'],
             penetration: 0.06,      // .45 ACP 口径，穿透力强于9mm冲锋枪
             headshotMultiplier: 1.8, // 大口径冲锋枪爆头加成
+            defaultOptic: 'holo',
+            optics: ['iron', 'reflex', 'holo'],
         },
         // === 霰弹枪 ===
         M870: {
@@ -248,6 +258,8 @@ export const CONFIG = {
             penetration: 0.02,      // 霰弹穿透力极弱
             headshotMultiplier: 1.5, // 多弹丸已具高伤害，爆头加成低
             fireModes: ['semi'],
+            defaultOptic: 'iron',
+            optics: ['iron', 'reflex'],
         },
         // === 狙击步枪 ===
         L96: {
@@ -280,6 +292,8 @@ export const CONFIG = {
             penetration: 0.20,      // 高口径狙击弹，穿透力极强
             headshotMultiplier: 2.5, // 一枪爆头
             fireModes: ['semi'],
+            defaultOptic: 'sniper8x',
+            optics: ['combat3x', 'sniper6x', 'sniper8x'],
         },
         M40A5: {
             name: 'M40A5',
@@ -311,6 +325,8 @@ export const CONFIG = {
             penetration: 0.18,      // 栓动狙击枪穿透力强
             headshotMultiplier: 2.4, // 高爆头加成
             fireModes: ['semi'],
+            defaultOptic: 'sniper6x',
+            optics: ['combat3x', 'sniper6x', 'sniper8x'],
         },
         // === 轻机枪 (LMG) ===
         M249: {
@@ -342,6 +358,8 @@ export const CONFIG = {
             bipodBonus: true,      // 可架设双脚架
             suppressive: true,     // 压制效果增强
             fireModes: ['auto'],
+            defaultOptic: 'reflex',
+            optics: ['iron', 'reflex', 'holo', 'combat3x'],
         },
         // === 精准射手步枪 (DMR) ===
         SKS: {
@@ -373,6 +391,8 @@ export const CONFIG = {
             fireModes: ['semi'],
             penetration: 0.14,      // 7.62mm 口径，穿透力强
             headshotMultiplier: 2.3, // 精准射手步枪爆头加成
+            defaultOptic: 'combat3x',
+            optics: ['reflex', 'holo', 'combat3x', 'sniper6x'],
         },
         // === 手枪 ===
         P226: {
@@ -508,6 +528,8 @@ export const CONFIG = {
             fireModes: ['auto', 'semi'],
             penetration: 0.09,
             headshotMultiplier: 2.0,
+            defaultOptic: 'iron',
+            optics: ['iron', 'reflex', 'combat3x'],
         },
         Thompson: {
             name: 'Thompson',
@@ -538,6 +560,8 @@ export const CONFIG = {
             fireModes: ['auto', 'semi'],
             penetration: 0.06,
             headshotMultiplier: 1.8,
+            defaultOptic: 'iron',
+            optics: ['iron', 'reflex'],
         },
         Kar98k: {
             name: 'Kar98k',
@@ -569,6 +593,8 @@ export const CONFIG = {
             penetration: 0.19,
             headshotMultiplier: 2.5,
             fireModes: ['semi'],
+            defaultOptic: 'sniper6x',
+            optics: ['combat3x', 'sniper6x', 'sniper8x'],
         },
         MG42: {
             name: 'MG 42',
@@ -599,6 +625,8 @@ export const CONFIG = {
             bipodBonus: true,
             suppressive: true,
             fireModes: ['auto'],
+            defaultOptic: 'iron',
+            optics: ['iron', 'reflex', 'combat3x'],
         },
         M1Garand: {
             name: 'M1 Garand',
@@ -629,6 +657,8 @@ export const CONFIG = {
             fireModes: ['semi'],
             penetration: 0.13,
             headshotMultiplier: 2.3,
+            defaultOptic: 'iron',
+            optics: ['iron', 'reflex', 'combat3x'],
         },
         BAR: {
             name: 'BAR M1918',
@@ -658,6 +688,8 @@ export const CONFIG = {
             soundType: 'rifle_heavy',
             bipodBonus: true,
             fireModes: ['auto', 'semi'],
+            defaultOptic: 'iron',
+            optics: ['iron', 'reflex', 'combat3x'],
         },
         M1911: {
             name: 'M1911',
@@ -742,6 +774,67 @@ export const CONFIG = {
         },
     },
 
+    // 瞄准镜/瞄具配置（集中管理，供主武器选择）
+    // style 决定镜罩样式：'iron'(机械/无镜罩) / 'reflex'(反射/全息，无黑圈) / 'combat'(3-4x 战斗镜) / 'sniper'(6-8x 狙击镜)
+    OPTICS: {
+        iron: {
+            id: 'iron',
+            name: '机械瞄具',
+            zoom: 1.15,
+            adsTimeMult: 0.9,        // 机械瞄具更轻，开镜快
+            style: 'iron',
+            model: 'iron',
+            tag: '近战',
+        },
+        reflex: {
+            id: 'reflex',
+            name: '反射瞄准镜',
+            zoom: 1.3,
+            adsTimeMult: 1.0,
+            style: 'reflex',
+            model: 'reflex',
+            tag: '近-中距',
+        },
+        holo: {
+            id: 'holo',
+            name: '全息瞄准镜',
+            zoom: 1.4,
+            adsTimeMult: 1.0,
+            style: 'reflex',
+            model: 'holo',
+            tag: '近-中距',
+        },
+        combat3x: {
+            id: 'combat3x',
+            name: '3.4x 战斗镜',
+            zoom: 3.4,
+            adsTimeMult: 1.25,
+            style: 'combat',
+            model: 'combat',
+            tag: '中距',
+        },
+        sniper6x: {
+            id: 'sniper6x',
+            name: '6x 狙击镜',
+            zoom: 6.0,
+            adsTimeMult: 1.35,
+            style: 'sniper',
+            model: 'sniper',
+            holdBreath: true,
+            tag: '远距',
+        },
+        sniper8x: {
+            id: 'sniper8x',
+            name: '8x 狙击镜',
+            zoom: 8.0,
+            adsTimeMult: 1.5,
+            style: 'sniper',
+            model: 'sniper',
+            holdBreath: true,
+            tag: '远距',
+        },
+    },
+
     // 兵种
     CLASSES: {
         assault: {
@@ -753,8 +846,8 @@ export const CONFIG = {
             maxArmor: 100,
             // 突击兵被动：冲刺体力消耗降低
             staminaDiscount: 0.3,
-            // 可选武器
-            weaponOptions: ['M416', 'AK12', 'SCAR_H', 'M249', 'STG44'],
+            // 可选武器：聚焦突击步枪
+            weaponOptions: ['M416', 'AK12', 'SCAR_H', 'STG44'],
             // 特殊装备槽（原作风格反甲突击）
             special: 'hedgehog',
         },
@@ -767,8 +860,8 @@ export const CONFIG = {
             maxArmor: 100,
             // 医疗兵被动：血量低于50%时自动回血
             autoRegen: true,
-            // 可选武器
-            weaponOptions: ['MP5', 'UMP45', 'M416', 'Thompson'],
+            // 可选武器：聚焦冲锋枪
+            weaponOptions: ['MP5', 'UMP45', 'Thompson'],
         },
         engineer: {
             name: '工程兵',
@@ -779,21 +872,21 @@ export const CONFIG = {
             maxArmor: 120,
             // 工程兵被动：对载具伤害加成
             vehicleDamageBonus: 0.3,
-            // 可选武器
-            weaponOptions: ['M870', 'UMP45', 'AK12', 'BAR', 'Panzerschreck'],
+            // 可选武器：近战/霰弹为主，副武器 RPG 反甲
+            weaponOptions: ['M870', 'UMP45', 'BAR'],
             // 专属：曲射迫击炮
             special: 'mortar',
         },
         sniper: {
-            name: '狙击手',
+            name: '侦察兵',
             primary: 'L96',
             secondary: 'MP443',
             gadget: 'sensor',
             maxHealth: 90,
             maxArmor: 80,
-            // 狙击手被动：屏息时间更长
+            // 侦察兵被动：屏息时间更长
             holdBreathBonus: 2.0,
-            // 可选武器
+            // 可选武器：狙击步枪 / DMR
             weaponOptions: ['L96', 'M40A5', 'SKS', 'Kar98k', 'M1Garand'],
             // 侦察兵主要依赖传感器标记
             special: null,
@@ -807,9 +900,83 @@ export const CONFIG = {
             maxArmor: 120,
             // 支援兵被动：压制抗性
             suppressionResist: 0.4,
-            weaponOptions: ['M249', 'MG42', 'BAR', 'UMP45'],
+            // 可选武器：聚焦轻机枪
+            weaponOptions: ['M249', 'MG42', 'BAR'],
             // 专属：反坦克地雷
             special: 'atmine',
+        },
+    },
+
+    CLASS_SPECIALIZATIONS: {
+        assault: {
+            vanguard: {
+                name: '先锋',
+                level1: '占领权重提升至 1.20',
+                level2: '占领权重提升至 1.35',
+                levels: [{ captureWeight: 1.2 }, { captureWeight: 1.35 }],
+            },
+            grenadier: {
+                name: '掷弹兵',
+                level1: '手雷携带上限提升至 4',
+                level2: '手雷携带上限提升至 5',
+                levels: [{ grenadeMax: 4 }, { grenadeMax: 5 }],
+            },
+        },
+        medic: {
+            firstAid: {
+                name: '急救',
+                level1: '复活距离 3.5 米，恢复 65 生命',
+                level2: '复活距离 4 米，恢复 80 生命',
+                levels: [{ reviveRange: 3.5, reviveHealth: 65 }, { reviveRange: 4, reviveHealth: 80 }],
+            },
+            fieldHospital: {
+                name: '医疗站',
+                level1: '医疗包范围和持续时间提升 25%',
+                level2: '医疗包范围和持续时间提升 50%',
+                levels: [{ gadgetRadiusMult: 1.25, gadgetDurationMult: 1.25 }, { gadgetRadiusMult: 1.5, gadgetDurationMult: 1.5 }],
+            },
+        },
+        engineer: {
+            mechanic: {
+                name: '机械师',
+                level1: '维修效率提升 25%',
+                level2: '维修效率提升 50%',
+                levels: [{ repairMult: 1.25 }, { repairMult: 1.5 }],
+            },
+            antiArmor: {
+                name: '破甲',
+                level1: '对载具伤害加成提升至 40%',
+                level2: '对载具伤害加成提升至 50%',
+                levels: [{ vehicleDamageBonus: 0.4 }, { vehicleDamageBonus: 0.5 }],
+            },
+        },
+        sniper: {
+            observer: {
+                name: '观察员',
+                level1: '标记持续 10 秒，冷却 2.5 秒',
+                level2: '标记持续 12 秒，冷却 2 秒',
+                levels: [{ spotDuration: 10, spotCooldown: 2.5 }, { spotDuration: 12, spotCooldown: 2 }],
+            },
+            marksman: {
+                name: '神射手',
+                level1: '屏息倍率 2.5，压制抗性 10%',
+                level2: '屏息倍率 3，压制抗性 20%',
+                levels: [{ holdBreathBonus: 2.5, suppressionResist: 0.1 }, { holdBreathBonus: 3, suppressionResist: 0.2 }],
+            },
+        },
+        support: {
+            quartermaster: {
+                name: '军需官',
+                level1: '弹药包范围和持续时间提升 25%',
+                level2: '弹药包范围和持续时间提升 50%',
+                levels: [{ gadgetRadiusMult: 1.25, gadgetDurationMult: 1.25 }, { gadgetRadiusMult: 1.5, gadgetDurationMult: 1.5 }],
+            },
+            bulwark: {
+                name: '铁壁',
+                level1: '护甲 130，压制抗性 50%',
+                level2: '护甲 140，压制抗性 60%',
+                levels: [{ maxArmor: 130, suppressionResist: 0.5 }, { maxArmor: 140, suppressionResist: 0.6 }],
+            },
         },
     },
 
@@ -1193,6 +1360,58 @@ export const CONFIG = {
         spotAssistScore: 10,
     },
 
+    BATTLEFIELD_DIRECTOR: {
+        requisition: {
+            start: 25,
+            max: 200,
+            trailingMultiplier: 1.2,
+            leadingMultiplier: 0.85,
+            scoreGapForScaling: 80,
+            contribution: {
+                kill: 4,
+                assist: 3,
+                spotAssist: 3,
+                capture: 12,
+                revive: 8,
+                support: 1,
+                missionSuccess: 30,
+                missionParticipation: 8,
+            },
+        },
+        specialization: {
+            level2XP: 60,
+            missionXP: 20,
+            contributionXP: {
+                kill: 5,
+                assist: 3,
+                spotAssist: 3,
+                capture: 10,
+                revive: 8,
+                support: 2,
+            },
+        },
+        mission: {
+            firstDelay: 40,
+            announceDuration: 4,
+            minDuration: 75,
+            maxDuration: 100,
+            cooldown: 40,
+            thinkInterval: 0.2,
+            captureHoldTime: 12,
+            defendHoldTime: 22,
+            supplyRadius: 10,
+        },
+        support: {
+            globalCooldown: 40,
+            typeCooldown: 75,
+            maxConcurrent: 2,
+            maxTargetDistance: 110,
+            smoke: { cost: 60, duration: 15, radius: 12 },
+            supply: { cost: 90, duration: 45, radius: 7 },
+            rally: { cost: 120, duration: 75, radius: 5 },
+        },
+    },
+
     // 游戏模式
     GAME_MODES: {
         conquest: {
@@ -1207,13 +1426,15 @@ export const CONFIG = {
             matchDuration: 900,
             teamScoreLimit: 1000,
             supportsStrategicObjectives: true,
+            directorMissionTypes: ['attack', 'defend', 'supply', 'vehicle', 'objective'],
             enabledMaps: ['default', 'ardennes', 'normandy', 'iwojima', 'stalingrad'],
         },
         attrition: {
             id: 'attrition',
             name: '消耗战',
-            description: '纯粹击杀消耗敌方票数，无据点得分',
+            description: '有限增援，医疗兵复活可节省资源',
             startingTickets: 250,
+            maxReinforcements: 30,
             ticketBleedRate: 0,
             capturePointPoints: 0,
             capturePointBonus: 0,
@@ -1221,31 +1442,46 @@ export const CONFIG = {
             matchDuration: 600,
             teamScoreLimit: 9999,
             supportsStrategicObjectives: false,
+            directorMissionTypes: ['elimination', 'vehicle'],
             enabledMaps: ['default', 'ardennes', 'stalingrad'],
         },
         breakthrough: {
             id: 'breakthrough',
             name: '突破',
             description: '攻方依次突破扇区防线',
-            startingTickets: 150,
+            startingTickets: 160,
+            ticketReserveCap: 20,
+            sectorTicketBonus: 35,
+            sectorTimeBonus: 150,
+            objectiveTicketBonus: 10,
+            objectiveTimeBonus: 60,
             ticketBleedRate: 0,
             capturePointPoints: 0,
             capturePointBonus: 0,
             deathTicketCost: 1,
-            matchDuration: 1200,
+            matchDuration: 480,
+            maxMatchDuration: 900,
             teamScoreLimit: 9999,
             supportsStrategicObjectives: true,
+            directorMissionTypes: ['attack', 'defend', 'vehicle', 'objective'],
             enabledMaps: ['normandy', 'iwojima'],
             sectors: 3,
-            capturePerSector: 1,
+            capturePerSector: 2,
             capturePointTime: 30,
             attackerTeam: 0,
+            sectorTicketBonus: 35,
+            ticketReserveCap: 20,
+            sectorTimeBonus: 150,
+            transitionDuration: 8,
+            overtimeDuration: 20,
         },
         tdm: {
             id: 'tdm',
             name: '团队死斗',
-            description: '纯击杀消耗票数，据点仅作战术掩体',
+            description: '击杀目标轮次制，达成目标后进入下一轮',
             startingTickets: 100,
+            killGoal: 50,
+            maxRounds: 3,
             ticketBleedRate: 0,
             capturePointPoints: 0,
             capturePointBonus: 0,
@@ -1253,6 +1489,7 @@ export const CONFIG = {
             matchDuration: 600,
             teamScoreLimit: 9999,
             supportsStrategicObjectives: false,
+            directorMissionTypes: ['elimination'],
             enabledMaps: ['default', 'ardennes', 'stalingrad'],
         },
         rush: {
@@ -1267,6 +1504,7 @@ export const CONFIG = {
             matchDuration: 900,
             teamScoreLimit: 9999,
             supportsStrategicObjectives: false,
+            directorMissionTypes: [],
             enabledMaps: ['normandy', 'iwojima', 'default', 'stalingrad'],
             sectors: 3,
             fuseDuration: 40,
@@ -1317,9 +1555,41 @@ export const CONFIG = {
                 { id: 'E', name: 'E', x: 80, z: -80, label: '工厂', radius: 12 },
             ],
             strategicObjectives: [
-                { id: 'friendly_fuel', type: 'fuel', x: -76, z: -122, health: 220, ticketDamage: 25, scoreValue: 25 },
-                { id: 'enemy_fuel', type: 'fuel', x: 76, z: 122, health: 220, ticketDamage: 25, scoreValue: 25 },
+                { id: 'friendly_fuel', team: 0, name: '蓝军前线油库', shortLabel: '油库', type: 'fuel', x: -76, z: -122, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[16, 4], [12, 12], [5, 16]] },
+                { id: 'enemy_fuel', team: 1, name: '红军前线油库', shortLabel: '油库', type: 'fuel', x: 76, z: 122, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[-16, -4], [-12, -12], [-5, -16]] },
+                { id: 'friendly_comms', team: 0, name: '蓝军野战通讯站', shortLabel: '通讯站', type: 'comms', x: -108, z: -64, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[14, 0], [10, 10], [10, -10]] },
+                { id: 'enemy_comms', team: 1, name: '红军野战通讯站', shortLabel: '通讯站', type: 'comms', x: 108, z: 64, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[-14, 0], [-10, 10], [-10, -10]] },
             ],
+            tacticalLayout: {
+                routes: [
+                    { x: -52, z: -52, width: 92, depth: 7, rotation: Math.PI / 4, kind: 'main' },
+                    { x: 52, z: 52, width: 92, depth: 7, rotation: Math.PI / 4, kind: 'main' },
+                    { x: -48, z: 30, width: 96, depth: 5.5, rotation: -Math.PI / 5, kind: 'side' },
+                    { x: 48, z: -30, width: 96, depth: 5.5, rotation: -Math.PI / 5, kind: 'side' },
+                ],
+                coverClusters: [
+                    { x: -76, z: -30, rotation: 0.3, color: 0x58725c },
+                    { x: 76, z: 30, rotation: -0.3, color: 0x725858 },
+                    { x: -18, z: 58, rotation: 1.15, color: 0x5d6658 },
+                    { x: 18, z: -58, rotation: -1.15, color: 0x665d58 },
+                ],
+                laneBarriers: [
+                    { x: -74, z: -48, rotation: Math.PI / 4 }, { x: -52, z: -34, rotation: Math.PI / 4 },
+                    { x: -28, z: -17, rotation: Math.PI / 4 }, { x: 28, z: 17, rotation: Math.PI / 4 },
+                    { x: 52, z: 34, rotation: Math.PI / 4 }, { x: 74, z: 48, rotation: Math.PI / 4 },
+                ],
+                spawnCover: [
+                    { team: 0, dx: -18, dz: 8, rotation: 0 }, { team: 0, dx: 10, dz: -16, rotation: Math.PI / 2 },
+                    { team: 1, dx: 18, dz: -8, rotation: 0 }, { team: 1, dx: -10, dz: 16, rotation: Math.PI / 2 },
+                ],
+                landmarks: [
+                    { type: 'helipad', x: -82, z: -66, team: 0 }, { type: 'helipad', x: 82, z: 66, team: 1 },
+                    { type: 'comms', x: -6, z: 6 },
+                    { type: 'sign', x: -64, z: -30, label: 'B' }, { type: 'sign', x: 64, z: 30, label: 'E', color: 0x6f5555 },
+                    { type: 'checkpoint', x: -138, z: -104, rotation: Math.PI / 4, team: 0 },
+                    { type: 'checkpoint', x: 138, z: 104, rotation: Math.PI / 4, team: 1 },
+                ],
+            },
             vehicleSpawns: [
                 { type: 'jeep', x: -80, z: -130, team: 0, yaw: 0.5 },
                 { type: 'tank', x: -85, z: -125, team: 0, yaw: 0.3 },
@@ -1377,9 +1647,39 @@ export const CONFIG = {
                 { id: 'C', name: 'C', x: 60, z: 80, label: '山脊', radius: 10 },
             ],
             strategicObjectives: [
-                { id: 'friendly_fuel', type: 'fuel', x: -66, z: -102, health: 220, ticketDamage: 25, scoreValue: 25 },
-                { id: 'enemy_fuel', type: 'fuel', x: 66, z: 102, health: 220, ticketDamage: 25, scoreValue: 25 },
+                { id: 'friendly_fuel', team: 0, name: '盟军林间油料站', shortLabel: '油料站', type: 'fuel', x: -66, z: -102, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[14, 5], [10, 13], [5, 16]] },
+                { id: 'enemy_fuel', team: 1, name: '轴心林间油料站', shortLabel: '油料站', type: 'fuel', x: 66, z: 102, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[-14, -5], [-10, -13], [-5, -16]] },
+                { id: 'friendly_comms', team: 0, name: '盟军山林电台', shortLabel: '山林电台', type: 'comms', x: -82, z: -48, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[13, 4], [9, 12], [12, -7]] },
+                { id: 'enemy_comms', team: 1, name: '轴心山脊电台', shortLabel: '山脊电台', type: 'comms', x: 82, z: 48, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[-13, -4], [-9, -12], [-12, 7]] },
             ],
+            tacticalLayout: {
+                routes: [
+                    { x: -36, z: -58, width: 80, depth: 5.5, rotation: 0.64, kind: 'main' },
+                    { x: 28, z: 28, width: 92, depth: 5.5, rotation: 0.74, kind: 'main' },
+                    { x: -54, z: 18, width: 78, depth: 4.2, rotation: -0.42, kind: 'side' },
+                    { x: 46, z: 54, width: 68, depth: 4.2, rotation: 0.2, kind: 'side' },
+                ],
+                coverClusters: [
+                    { x: -48, z: -38, rotation: 0.7, color: 0x5d6658 },
+                    { x: -6, z: -18, rotation: 1.25, color: 0x70756c },
+                    { x: 42, z: 52, rotation: 0.55, color: 0x665f58 },
+                ],
+                laneBarriers: [
+                    { x: -46, z: -54, rotation: 0.65 }, { x: -21, z: -34, rotation: 0.65 },
+                    { x: 14, z: 7, rotation: 0.74 }, { x: 39, z: 33, rotation: 0.74 },
+                    { x: 55, z: 61, rotation: 0.2 },
+                ],
+                spawnCover: [
+                    { team: 0, dx: -14, dz: 10, rotation: 0.35 }, { team: 0, dx: 12, dz: -12, rotation: 1.4 },
+                    { team: 1, dx: 14, dz: -10, rotation: 0.35 }, { team: 1, dx: -12, dz: 12, rotation: 1.4 },
+                ],
+                landmarks: [
+                    { type: 'checkpoint', x: -100, z: -88, rotation: 0.7, team: 0 },
+                    { type: 'checkpoint', x: 98, z: 88, rotation: 0.7, team: 1 },
+                    { type: 'comms', x: -4, z: -12 },
+                    { type: 'sign', x: -38, z: -45, label: '桥头' }, { type: 'sign', x: 42, z: 56, label: '山脊', color: 0x626b5d },
+                ],
+            },
             vehicleSpawns: [
                 { type: 'jeep', x: -70, z: -110, team: 0, yaw: 0.5 },
                 { type: 'apc', x: -75, z: -105, team: 0, yaw: 0.3 },
@@ -1419,6 +1719,13 @@ export const CONFIG = {
                 horizonBrightness: 0.18,
                 grassDensity: 420,
                 grassColor: 0x7d8455,
+                coast: {
+                    direction: 'positiveZ',
+                    start: 160,
+                    transition: 28,
+                    waterLevel: 0.55,
+                    underwaterDepth: 7,
+                },
             },
             environment: {
                 theme: 'beach',
@@ -1432,10 +1739,42 @@ export const CONFIG = {
                 { id: 'C', name: 'C', x: 0, z: 0, label: '小镇', radius: 14 },
                 { id: 'D', name: 'D', x: 0, z: -60, label: '高地碉堡', radius: 12 },
             ],
+            breakthroughSectors: [['A'], ['B', 'C'], ['D']],
             strategicObjectives: [
-                { id: 'friendly_fuel', type: 'fuel', x: -10, z: 140, health: 220, ticketDamage: 25, scoreValue: 25 },
-                { id: 'enemy_fuel', type: 'fuel', x: 10, z: -80, health: 220, ticketDamage: 25, scoreValue: 25 },
+                { id: 'friendly_fuel', team: 0, name: '登陆舰油料集散点', shortLabel: '油料集散点', type: 'fuel', x: -24, z: 146, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[15, -4], [10, -12], [2, -16]] },
+                { id: 'enemy_fuel', team: 1, name: '高地装甲油库', shortLabel: '装甲油库', type: 'fuel', x: 22, z: -88, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[-14, 5], [-9, 13], [1, 16]] },
+                { id: 'friendly_comms', team: 0, name: '滩头海军电台', shortLabel: '海军电台', type: 'comms', x: 54, z: 132, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[-13, -3], [-9, -11], [2, -14]] },
+                { id: 'enemy_comms', team: 1, name: '高地火控站', shortLabel: '火控站', type: 'comms', x: -42, z: -72, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[13, 4], [9, 12], [-2, 15]] },
             ],
+            tacticalLayout: {
+                routes: [
+                    { x: 0, z: 96, width: 78, depth: 8, rotation: Math.PI / 2, kind: 'main' },
+                    { x: 0, z: 24, width: 72, depth: 7, rotation: Math.PI / 2, kind: 'main' },
+                    { x: -36, z: 58, width: 72, depth: 4.5, rotation: 1.23, kind: 'side' },
+                    { x: 38, z: 4, width: 84, depth: 4.5, rotation: 1.86, kind: 'side' },
+                ],
+                coverClusters: [
+                    { x: -34, z: 112, rotation: 0, color: 0x777267 },
+                    { x: 32, z: 76, rotation: 0.15, color: 0x6c6755 },
+                    { x: -30, z: 18, rotation: 1.5, color: 0x5d625f },
+                    { x: 26, z: -42, rotation: 1.45, color: 0x68645d },
+                ],
+                laneBarriers: [
+                    { x: -28, z: 100, rotation: 0 }, { x: 28, z: 100, rotation: 0 },
+                    { x: -24, z: 62, rotation: 0 }, { x: 24, z: 62, rotation: 0 },
+                    { x: -20, z: 8, rotation: 0 }, { x: 20, z: 8, rotation: 0 },
+                ],
+                spawnCover: [
+                    { team: 0, dx: -30, dz: -2, rotation: 0 }, { team: 0, dx: 30, dz: -2, rotation: 0 },
+                    { team: 1, dx: -18, dz: 12, rotation: 0 }, { team: 1, dx: 18, dz: 12, rotation: 0 },
+                ],
+                landmarks: [
+                    { type: 'checkpoint', x: -42, z: 72, rotation: 0, team: 0 },
+                    { type: 'checkpoint', x: 42, z: 72, rotation: 0, team: 0 },
+                    { type: 'sign', x: -28, z: 60, label: '海堤' }, { type: 'sign', x: 26, z: -50, label: '高地', color: 0x625d54 },
+                    { type: 'industrial', x: 56, z: -30, rotation: 0 },
+                ],
+            },
             vehicleSpawns: [
                 { type: 'tank', x: -15, z: 140, team: 0, yaw: 0 },
                 { type: 'armedjeep', x: 15, z: 140, team: 0, yaw: 0 },
@@ -1491,10 +1830,42 @@ export const CONFIG = {
                 { id: 'C', name: 'C', x: 40, z: -20, label: '矿井', radius: 12 },
                 { id: 'D', name: 'D', x: 0, z: -80, label: '折钵山', radius: 10 },
             ],
+            breakthroughSectors: [['A'], ['B', 'C'], ['D']],
             strategicObjectives: [
-                { id: 'friendly_fuel', type: 'fuel', x: -10, z: 145, health: 220, ticketDamage: 25, scoreValue: 25 },
-                { id: 'enemy_fuel', type: 'fuel', x: 10, z: -95, health: 220, ticketDamage: 25, scoreValue: 25 },
+                { id: 'friendly_fuel', team: 0, name: '滩头航空油料场', shortLabel: '航空油料场', type: 'fuel', x: -28, z: 148, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[15, -3], [10, -12], [1, -16]] },
+                { id: 'enemy_fuel', team: 1, name: '折钵山洞库', shortLabel: '山洞油库', type: 'fuel', x: 18, z: -104, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[-14, 5], [-9, 13], [2, 16]] },
+                { id: 'friendly_comms', team: 0, name: '登陆指挥电台', shortLabel: '指挥电台', type: 'comms', x: 48, z: 132, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[-13, -4], [-8, -12], [3, -14]] },
+                { id: 'enemy_comms', team: 1, name: '折钵山观察所', shortLabel: '观察所', type: 'comms', x: -38, z: -82, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[13, 5], [9, 12], [-2, 15]] },
             ],
+            tacticalLayout: {
+                routes: [
+                    { x: -18, z: 92, width: 84, depth: 7, rotation: 1.78, kind: 'main' },
+                    { x: 20, z: 18, width: 86, depth: 7, rotation: 1.28, kind: 'main' },
+                    { x: -48, z: 38, width: 76, depth: 4.5, rotation: 1.05, kind: 'side' },
+                    { x: 50, z: -46, width: 72, depth: 4.5, rotation: 1.95, kind: 'side' },
+                ],
+                coverClusters: [
+                    { x: -42, z: 112, rotation: 0.25, color: 0x57524b },
+                    { x: -38, z: 48, rotation: 1.0, color: 0x66615a },
+                    { x: 38, z: 2, rotation: 1.45, color: 0x4f5553 },
+                    { x: -12, z: -64, rotation: 0.2, color: 0x56514b },
+                ],
+                laneBarriers: [
+                    { x: -34, z: 105, rotation: 0.2 }, { x: 18, z: 88, rotation: 0.2 },
+                    { x: -34, z: 42, rotation: 1.05 }, { x: 25, z: 18, rotation: 1.28 },
+                    { x: 36, z: -42, rotation: 1.95 },
+                ],
+                spawnCover: [
+                    { team: 0, dx: -30, dz: -2, rotation: 0.1 }, { team: 0, dx: 28, dz: -6, rotation: -0.1 },
+                    { team: 1, dx: -18, dz: 12, rotation: 0.15 }, { team: 1, dx: 18, dz: 12, rotation: -0.15 },
+                ],
+                landmarks: [
+                    { type: 'helipad', x: -52, z: 126, team: 0 },
+                    { type: 'checkpoint', x: -48, z: 72, rotation: 0.2, team: 0 },
+                    { type: 'sign', x: -42, z: 50, label: '机场' }, { type: 'sign', x: 40, z: -18, label: '矿井', color: 0x57524b },
+                    { type: 'comms', x: -12, z: -70 },
+                ],
+            },
             vehicleSpawns: [
                 { type: 'jeep', x: -15, z: 145, team: 0, yaw: 0 },
                 { type: 'tank', x: 15, z: 145, team: 0, yaw: 0 },
@@ -1550,9 +1921,44 @@ export const CONFIG = {
                 { id: 'E', name: 'E', x: 50, z: -60, label: '弹药库', radius: 11 },
             ],
             strategicObjectives: [
-                { id: 'friendly_fuel', type: 'fuel', x: -80, z: -95, health: 220, ticketDamage: 25, scoreValue: 25 },
-                { id: 'enemy_fuel', type: 'fuel', x: 80, z: 95, health: 220, ticketDamage: 25, scoreValue: 25 },
+                { id: 'friendly_fuel', team: 0, name: '火车站燃料仓', shortLabel: '燃料仓', type: 'fuel', x: -112, z: -118, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[15, 4], [11, 12], [4, 16]] },
+                { id: 'enemy_fuel', team: 1, name: '工厂装甲油库', shortLabel: '装甲油库', type: 'fuel', x: 112, z: 118, health: 220, ticketDamage: 24, scoreValue: 26, effect: { vehicleRespawnDelay: 15 }, approachOffsets: [[-15, -4], [-11, -12], [-4, -16]] },
+                { id: 'friendly_comms', team: 0, name: '铁路调度站', shortLabel: '调度站', type: 'comms', x: -104, z: -42, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[14, 1], [10, 10], [10, -10]] },
+                { id: 'enemy_comms', team: 1, name: '工厂指挥所', shortLabel: '指挥所', type: 'comms', x: 104, z: 42, health: 180, ticketDamage: 18, scoreValue: 22, effect: { disableOrders: true }, approachOffsets: [[-14, -1], [-10, 10], [-10, -10]] },
             ],
+            tacticalLayout: {
+                routes: [
+                    { x: 0, z: 0, width: 170, depth: 8, rotation: Math.PI / 4, kind: 'main' },
+                    { x: -18, z: 42, width: 118, depth: 6, rotation: 0, kind: 'main' },
+                    { x: 22, z: -46, width: 118, depth: 6, rotation: 0, kind: 'main' },
+                    { x: -62, z: 12, width: 86, depth: 4.5, rotation: Math.PI / 2, kind: 'side' },
+                    { x: 62, z: -12, width: 86, depth: 4.5, rotation: Math.PI / 2, kind: 'side' },
+                ],
+                coverClusters: [
+                    { x: -58, z: -42, rotation: 0.1, color: 0x666159 },
+                    { x: -36, z: 54, rotation: 1.5, color: 0x6e6258 },
+                    { x: 12, z: 6, rotation: 0.75, color: 0x655f58 },
+                    { x: 52, z: -50, rotation: 1.5, color: 0x665852 },
+                    { x: 64, z: 42, rotation: 0.1, color: 0x705852 },
+                ],
+                laneBarriers: [
+                    { x: -70, z: -70, rotation: Math.PI / 4 }, { x: -40, z: -40, rotation: Math.PI / 4 },
+                    { x: -10, z: -10, rotation: Math.PI / 4 }, { x: 20, z: 20, rotation: Math.PI / 4 },
+                    { x: 50, z: 50, rotation: Math.PI / 4 },
+                    { x: -48, z: 42, rotation: 0 }, { x: 50, z: -46, rotation: 0 },
+                ],
+                spawnCover: [
+                    { team: 0, dx: -18, dz: 8, rotation: 0.15 }, { team: 0, dx: 10, dz: -18, rotation: Math.PI / 2 },
+                    { team: 1, dx: 18, dz: -8, rotation: 0.15 }, { team: 1, dx: -10, dz: 18, rotation: Math.PI / 2 },
+                ],
+                landmarks: [
+                    { type: 'checkpoint', x: -126, z: -92, rotation: Math.PI / 4, team: 0 },
+                    { type: 'checkpoint', x: 126, z: 92, rotation: Math.PI / 4, team: 1 },
+                    { type: 'industrial', x: 76, z: 48, rotation: 0.2 },
+                    { type: 'comms', x: -96, z: -34 },
+                    { type: 'sign', x: -62, z: -62, label: '火车站' }, { type: 'sign', x: 64, z: 56, label: '工厂', color: 0x705852 },
+                ],
+            },
             vehicleSpawns: [
                 { type: 'jeep', x: -85, z: -100, team: 0, yaw: 0.4 },
                 { type: 'tank', x: -90, z: -95, team: 0, yaw: 0.3 },

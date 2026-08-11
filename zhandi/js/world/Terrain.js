@@ -109,6 +109,21 @@ export class Terrain {
             const edgeFactor = Math.max(0, (distFromCenter - this.size * 0.35) / (this.size * 0.15));
             height += edgeFactor * 8;
 
+            const coast = this.terrainConfig.coast;
+            if (coast) {
+                const axis = coast.direction === 'positiveX' ? x
+                    : coast.direction === 'negativeX' ? -x
+                    : coast.direction === 'negativeZ' ? -z
+                    : z;
+                const start = coast.start ?? 0;
+                const transition = Math.max(1, coast.transition ?? 30);
+                if (axis > start) {
+                    const t = Math.min(1, (axis - start) / transition);
+                    const targetDepth = (coast.waterLevel ?? 0) - (coast.underwaterDepth ?? 6);
+                    height = height * (1 - t) + targetDepth * t;
+                }
+            }
+
             this.heightData[i] = height;
             positions.setY(i, height);
         }

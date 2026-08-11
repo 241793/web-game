@@ -1,7 +1,7 @@
 // 游戏模式基类 - 所有游戏模式的抽象接口
 // 注意：子类导入在 GameModeFactory.js 中汇总，避免此处形成循环依赖
 // （GameMode.js ← ConquestMode.js → GameMode.js 的 TDZ 错误）
-import { CONFIG } from '../config.js?v=20260802.4';
+import { CONFIG } from '../config.js?v=20260811.1';
 
 // 游戏模式基类
 export class GameMode {
@@ -53,11 +53,12 @@ export class GameMode {
     // 每帧更新
     update(dt) {
         if (this.winner) return;
-        this.matchTimer -= dt;
-        if (this.matchTimer <= 0) {
-            this.matchTimer = 0;
-            this._decideWinnerByTickets();
-        }
+        this.matchTimer = Math.max(0, this.matchTimer - dt);
+        if (this.matchTimer <= 0) this.onTimeExpired(dt);
+    }
+
+    onTimeExpired() {
+        if (!this.winner) this._decideWinnerByTickets();
     }
 
     // 检查游戏是否结束

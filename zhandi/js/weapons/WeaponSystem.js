@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260806.2';
+import { CONFIG } from '../config.js?v=20260811.1';
 import { createProceduralMaterial } from '../utils/VisualAssets.js?v=20260801.2';
 
 // 武器系统 - 管理武器状态、射击、弹道、特效
@@ -10,6 +10,7 @@ export class WeaponSystem {
         this.audio = audio;
         this.world = world;
         this.cb = callbackScope; // 回调对象 { onHit, onKill, getTargets }
+        this.transientFx = scene.userData.transientFx;
 
         // 武器状态
         this.weapons = [];        // 当前装备的武器列表
@@ -112,21 +113,29 @@ export class WeaponSystem {
         this._shellGeoRifle = new THREE.CylinderGeometry(0.005, 0.005, 0.025, 4);
         this._shellGeoPistol = new THREE.CylinderGeometry(0.004, 0.004, 0.018, 4);
         this._shellMat = new THREE.MeshStandardMaterial({ color: 0xccaa44, metalness: 0.8, roughness: 0.3 });
-        this._tracerMatCache = {};  // 按颜色缓存弹道材质
+        this._straightTracerGeo = new THREE.CylinderGeometry(1, 0.5, 1, 6);
+        this._straightTracerPool = [];
+        this._curvedTracerPool = [];
+        this._tracerSegments = 9;
         this._bloodMat = new THREE.PointsMaterial({ color: 0xcc0000, size: 0.1, transparent: true });
         this._bloodMistMat = new THREE.MeshBasicMaterial({ color: 0x880000, transparent: true, opacity: 0.4 });
         this._bloodMistGeo = new THREE.SphereGeometry(0.2, 6, 4);
     }
 
     // 装备武器
-    loadWeapons(weaponNames) {
+    // primaryOpticId：主武器所选瞄具 ID（来自载荷）；副武器始终使用武器自身默认瞄具
+    loadWeapons(weaponNames, primaryOpticId = null) {
         this.weapons = [];
-        for (const name of weaponNames) {
+        for (let i = 0; i < weaponNames.length; i++) {
+            const name = weaponNames[i];
             const config = CONFIG.WEAPONS[name];
             if (config) {
+                const isPrimary = i === 0;
+                const optic = isPrimary ? this._resolveOptic(config, primaryOpticId) : this._resolveOptic(config, null);
                 this.weapons.push({
                     name: name,
                     config: config,
+                    optic: optic,
                     ammoInMag: config.magSize,
                     reserveAmmo: config.reserveAmmo,
                     fireMode: this._getDefaultFireMode(config),
@@ -139,6 +148,29 @@ export class WeaponSystem {
         this._showWeaponModel(0);
     }
 
+    // 解析当前武器应使用的瞄具配置（校验兼容性，回退默认）
+    _resolveOptic(weaponConfig, requestedOpticId) {
+        const optics = weaponConfig.optics || [];
+        if (optics.length === 0) {
+            // 无瞄具选项的武器（手枪/火箭筒）使用武器内置 zoom 封装为 iron 风格
+            return {
+                id: 'iron',
+                name: '机械瞄具',
+                zoom: weaponConfig.zoom || 1.1,
+                style: 'iron',
+                model: 'iron',
+                holdBreath: !!weaponConfig.holdBreath,
+                adsTimeMult: 1.0,
+                tag: '',
+            };
+        }
+        const validId = optics.includes(requestedOpticId) ? requestedOpticId : (weaponConfig.defaultOptic || optics[0]);
+        const opticCfg = CONFIG.OPTICS[validId] || CONFIG.OPTICS[weaponConfig.defaultOptic] || CONFIG.OPTICS[optics[0]];
+        return opticCfg ? { ...opticCfg } : {
+            id: 'iron', name: '机械瞄具', zoom: weaponConfig.zoom || 1.1, style: 'iron', model: 'iron', holdBreath: !!weaponConfig.holdBreath, adsTimeMult: 1.0, tag: '',
+        };
+    }
+
     _createWeaponModels() {
         // 清除旧模型
         while (this.weaponGroup.children.length > 0) {
@@ -148,7 +180,7 @@ export class WeaponSystem {
 
         for (let i = 0; i < this.weapons.length; i++) {
             const wpn = this.weapons[i];
-            const model = this._buildWeaponModel(wpn.config);
+            const model = this._buildWeaponModel(wpn.config, wpn.optic);
             model.visible = (i === 0);
             this.weaponGroup.add(model);
             this.weaponModels[i] = model;
@@ -222,8 +254,11 @@ export class WeaponSystem {
         this.heldGrenadeTimer = 0;
     }
 
-    _buildWeaponModel(config) {
+    _buildWeaponModel(config, optic) {
         const group = new THREE.Group();
+        // 瞄具配置：未提供时按武器默认解析（Bot 等不传瞄具的路径仍可工作）
+        const opticCfg = optic || this._resolveOptic(config, null);
+        group.userData.optic = opticCfg;
 
         // 材质库 - 不同武器的配色方案
         const isDark = config.name === 'AK-12' || config.name === 'UMP-45';
@@ -267,13 +302,13 @@ export class WeaponSystem {
             repeatY: 1,
             anisotropy: 4,
         }, { roughness: 0.42, metalness: 0.62, bumpScale: 0.01, useBump: true });
-        const matGlass = new THREE.MeshStandardMaterial({
-            color: 0x113311,
-            roughness: 0.06,
-            metalness: 0.18,
+        const matGlass = new THREE.MeshBasicMaterial({
+            color: 0x71d9dd,
             transparent: true,
-            opacity: 0.72,
+            opacity: 0.24,
+            side: THREE.DoubleSide,
             depthWrite: false,
+            toneMapped: false,
         });
 
         switch (config.type) {
@@ -312,7 +347,7 @@ export class WeaponSystem {
         }
 
         this._addWeaponDetailKit(group, config, matMetal, matStock, matPolymer, matDark);
-        this._addWeaponAttachmentSuite(group, config, matMetal, matStock, matPolymer, matDark, matGlass);
+        this._addWeaponAttachmentSuite(group, config, matMetal, matStock, matPolymer, matDark, matGlass, opticCfg);
         this._addWeaponSurfacePaneling(group, config, matMetal, matStock, matPolymer, matDark, matGlass);
 
         // 枪口闪光
@@ -428,10 +463,12 @@ export class WeaponSystem {
                 const gl = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, 0.14, 8), specMat);
                 gl.position.set(0, -0.07, -0.1);
                 group.add(gl);
-                // 全息瞄准镜（方形镜体）
-                const holo = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.025), matDark);
-                holo.position.set(0, 0.105, 0.0);
-                group.add(holo);
+                // 默认全息镜仅在机械瞄具时补；选定瞄具后由 attachment suite 统一提供
+                if (group.userData.optic?.style === 'iron') {
+                    const holo = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.025), matDark);
+                    holo.position.set(0, 0.105, 0.0);
+                    group.add(holo);
+                }
                 break;
             }
             case 'AK-12': {
@@ -527,11 +564,13 @@ export class WeaponSystem {
                 const cheekRest = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.15), matPolymer);
                 cheekRest.position.set(0, 0.075, 0.15);
                 group.add(cheekRest);
-                // 高倍瞄准镜（长镜体）
-                const scopeBody = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.28, 12), specMat);
-                scopeBody.rotation.x = Math.PI / 2;
-                scopeBody.position.set(0, 0.1, -0.05);
-                group.add(scopeBody);
+                // 高倍镜体仅在机械瞄具时补；选定狙击镜后由 attachment suite 统一提供
+                if (group.userData.optic?.style === 'iron') {
+                    const scopeBody = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.28, 12), specMat);
+                    scopeBody.rotation.x = Math.PI / 2;
+                    scopeBody.position.set(0, 0.1, -0.05);
+                    group.add(scopeBody);
+                }
                 break;
             }
             case 'M40A5': {
@@ -543,11 +582,13 @@ export class WeaponSystem {
                 const leather = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.015, 0.1), tanMat);
                 leather.position.set(0, 0.07, 0.12);
                 group.add(leather);
-                // 中倍瞄准镜
-                const scopeBody = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.24, 12), specMat);
-                scopeBody.rotation.x = Math.PI / 2;
-                scopeBody.position.set(0, 0.1, -0.05);
-                group.add(scopeBody);
+                // 中倍瞄准镜仅在机械瞄具时补；选定狙击镜后由 attachment suite 统一提供
+                if (group.userData.optic?.style === 'iron') {
+                    const scopeBody = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.24, 12), specMat);
+                    scopeBody.rotation.x = Math.PI / 2;
+                    scopeBody.position.set(0, 0.1, -0.05);
+                    group.add(scopeBody);
+                }
                 break;
             }
             case 'M249': {
@@ -645,36 +686,133 @@ export class WeaponSystem {
         }
     }
 
-    _addWeaponAttachmentSuite(group, config, matMetal, matStock, matPolymer, matDark, matGlass) {
+    // 按瞄具风格构建镜体几何（仅 buildWeaponModel 时构建一次，无每帧开销）
+    _buildOpticGroup(config, optic, matDark, matGlass, accentMat) {
+        const style = optic?.style || 'iron';
+        const opticGroup = new THREE.Group();
+        const isSniperPlatform = config.type === 'sniper';
+
+        if (style === 'iron') {
+            // 机械瞄具：不加独立镜体，机匣照门/准星已由 detailKit 提供
+            return null;
+        }
+
+        if (style === 'reflex') {
+            const isHolo = optic?.model === 'holo';
+            const w = isHolo ? 0.058 : 0.046;
+            const h = isHolo ? 0.04 : 0.032;
+            const d = 0.028;
+            const frame = isHolo ? 0.006 : 0.0045;
+            const top = new THREE.Mesh(new THREE.BoxGeometry(w, frame, d), matDark);
+            top.position.y = h / 2 - frame / 2;
+            opticGroup.add(top);
+            for (const x of [-1, 1]) {
+                const side = new THREE.Mesh(new THREE.BoxGeometry(frame, h - frame, d), matDark);
+                side.position.x = x * (w / 2 - frame / 2);
+                side.position.y = -frame / 2;
+                opticGroup.add(side);
+            }
+            const lower = new THREE.Mesh(new THREE.BoxGeometry(w, frame, d), matDark);
+            lower.position.y = -h / 2 + frame / 2;
+            opticGroup.add(lower);
+
+            const window = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.76, h * 0.72), matGlass);
+            window.position.z = -d / 2 - 0.001;
+            window.renderOrder = 8;
+            opticGroup.add(window);
+
+            const reticle = new THREE.Mesh(
+                new THREE.RingGeometry(isHolo ? 0.006 : 0.0045, isHolo ? 0.0068 : 0.0052, 20),
+                new THREE.MeshBasicMaterial({
+                    color: 0x71ffd2,
+                    transparent: true,
+                    opacity: 0.9,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    toneMapped: false,
+                })
+            );
+            reticle.position.z = -d / 2 - 0.002;
+            reticle.renderOrder = 9;
+            opticGroup.add(reticle);
+
+            const mount = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.035), accentMat);
+            mount.position.y = -h / 2 - 0.012;
+            opticGroup.add(mount);
+            return opticGroup;
+        }
+
+        if (style === 'combat') {
+            // 3-4x 战斗镜：中等筒身 + 前后镜片
+            const bodyLength = 0.18;
+            const bodyRadius = 0.026;
+            const tube = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius, bodyRadius, bodyLength, 14, 1, true), matDark);
+            tube.rotation.x = Math.PI / 2;
+            opticGroup.add(tube);
+            const lensFront = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius * 0.82, bodyRadius * 0.82, 0.008, 14), matGlass);
+            lensFront.rotation.x = Math.PI / 2;
+            lensFront.position.z = -bodyLength / 2 - 0.004;
+            opticGroup.add(lensFront);
+            const lensRear = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius * 0.72, bodyRadius * 0.72, 0.008, 14), matGlass);
+            lensRear.rotation.x = Math.PI / 2;
+            lensRear.position.z = bodyLength / 2 + 0.004;
+            opticGroup.add(lensRear);
+            const mount = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.035, 0.04), accentMat);
+            mount.position.y = -0.035;
+            opticGroup.add(mount);
+            return opticGroup;
+        }
+
+        if (style === 'sniper') {
+            // 6-8x 狙击镜：长筒身 + 遮光罩 + 调节旋钮
+            const bodyLength = isSniperPlatform ? 0.26 : 0.22;
+            const bodyRadius = 0.03;
+            const tube = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius, bodyRadius, bodyLength, 16, 1, true), matDark);
+            tube.rotation.x = Math.PI / 2;
+            opticGroup.add(tube);
+            const shade = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius * 1.15, bodyRadius * 1.15, 0.05, 16), matDark);
+            shade.rotation.x = Math.PI / 2;
+            shade.position.z = -bodyLength / 2 - 0.01;
+            opticGroup.add(shade);
+            const lensFront = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius * 0.85, bodyRadius * 0.85, 0.008, 16), matGlass);
+            lensFront.rotation.x = Math.PI / 2;
+            lensFront.position.z = -bodyLength / 2 - 0.035;
+            opticGroup.add(lensFront);
+            const lensRear = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius * 0.72, bodyRadius * 0.72, 0.008, 16), matGlass);
+            lensRear.rotation.x = Math.PI / 2;
+            lensRear.position.z = bodyLength / 2 + 0.004;
+            opticGroup.add(lensRear);
+            // 调节旋钮
+            const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.022, 10), accentMat);
+            turret.position.y = bodyRadius + 0.008;
+            opticGroup.add(turret);
+            const sideTurret = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.02, 10), accentMat);
+            sideTurret.rotation.z = Math.PI / 2;
+            sideTurret.position.x = bodyRadius + 0.006;
+            opticGroup.add(sideTurret);
+            const mount = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.05), accentMat);
+            mount.position.y = -0.035;
+            opticGroup.add(mount);
+            return opticGroup;
+        }
+
+        return null;
+    }
+
+    _addWeaponAttachmentSuite(group, config, matMetal, matStock, matPolymer, matDark, matGlass, optic) {
         const accentMat = new THREE.MeshStandardMaterial({ color: 0x2f3432, roughness: 0.52, metalness: 0.65 });
         const rubberMat = new THREE.MeshStandardMaterial({ color: 0x070707, roughness: 0.86, metalness: 0.08 });
         const markingMat = new THREE.MeshBasicMaterial({ color: 0x66d6c5, transparent: true, opacity: 0.7 });
         const isSidearm = config.type === 'pistol';
         const isTube = config.type === 'rocket';
 
-        if (!isSidearm && !isTube) {
-            const optic = new THREE.Group();
-            const bodyLength = config.type === 'sniper' ? 0.24 : config.type === 'dmr' ? 0.18 : 0.11;
-            const bodyRadius = config.type === 'sniper' ? 0.03 : 0.024;
-            const opticBody = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius, bodyRadius, bodyLength, 14), matDark);
-            opticBody.rotation.x = Math.PI / 2;
-            optic.add(opticBody);
-
-            const lensFront = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius * 0.82, bodyRadius * 0.82, 0.008, 14), matGlass);
-            lensFront.rotation.x = Math.PI / 2;
-            lensFront.position.z = -bodyLength / 2 - 0.004;
-            optic.add(lensFront);
-
-            const lensRear = new THREE.Mesh(new THREE.CylinderGeometry(bodyRadius * 0.72, bodyRadius * 0.72, 0.008, 14), matGlass);
-            lensRear.rotation.x = Math.PI / 2;
-            lensRear.position.z = bodyLength / 2 + 0.004;
-            optic.add(lensRear);
-
-            const mount = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.035, 0.04), accentMat);
-            mount.position.y = -0.035;
-            optic.add(mount);
-            optic.position.set(0, config.type === 'sniper' ? 0.14 : 0.105, config.type === 'smg' ? -0.04 : -0.02);
-            group.add(optic);
+        // 瞄具镜体：按所选 optic 风格构建（机械瞄具不加独立镜体，沿用机匣上的准星/照门）
+        if (!isSidearm && !isTube && optic) {
+            const opticGroup = this._buildOpticGroup(config, optic, matDark, matGlass, accentMat);
+            if (opticGroup) {
+                opticGroup.position.set(0, config.type === 'sniper' ? 0.14 : 0.105, config.type === 'smg' ? -0.04 : -0.02);
+                group.add(opticGroup);
+            }
 
             if (config.type === 'rifle' || config.type === 'lmg' || config.type === 'dmr') {
                 const foreGrip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.11, 0.04), rubberMat);
@@ -1231,7 +1369,7 @@ export class WeaponSystem {
 
         // 中倍率瞄准镜
         const scopeBody = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.022, 0.022, 0.18, 12), matDark
+            new THREE.CylinderGeometry(0.022, 0.022, 0.18, 12, 1, true), matDark
         );
         scopeBody.rotation.x = Math.PI / 2;
         scopeBody.position.set(0, 0.07, -0.02);
@@ -1431,7 +1569,7 @@ export class WeaponSystem {
         const scopeGroup = new THREE.Group();
         // 镜筒
         const scopeTube = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.035, 0.035, 0.28, 16), matDark
+            new THREE.CylinderGeometry(0.035, 0.035, 0.28, 16, 1, true), matDark
         );
         scopeTube.rotation.x = Math.PI / 2;
         scopeGroup.add(scopeTube);
@@ -1843,7 +1981,9 @@ export class WeaponSystem {
     }
 
     canHoldBreath() {
-        return !!(this.currentWeapon && this.currentWeapon.config.holdBreath);
+        if (!this.currentWeapon) return false;
+        // 瞄具声明可屏息（狙击镜）或武器本身支持屏息
+        return !!(this.currentWeapon.optic?.holdBreath || this.currentWeapon.config.holdBreath);
     }
 
     reload() {
@@ -1900,7 +2040,7 @@ export class WeaponSystem {
 
     // 射击逻辑
     tryFire(now) {
-        if (!this.currentWeapon || this.isReloading) return false;
+        if (!this.currentWeapon || this.isReloading || this.switchAnimTimer > 0) return false;
         // 泵动枪械（M870）射击后必须完成泵动周期才能再次击发
         if (this._pumpTimer > 0) return false;
         // 移除切换动画期间不能射击的限制（开枪无限制）
@@ -2122,6 +2262,7 @@ export class WeaponSystem {
         // === 弹道下坠计算 ===
         // 对 hitscan 武器进行两阶段检测：先确定距离，再根据子弹速度和重力计算下坠量
         let intersects = initialIntersects;
+        let finalDirection = direction;
         if (config.bulletDrop && config.bulletSpeed && initialIntersects.length > 0) {
             const hitDist = initialIntersects[0].distance;
             if (hitDist > 5) {
@@ -2140,12 +2281,13 @@ export class WeaponSystem {
                     const dropIntersects = this._dropRaycaster.intersectObjects(targets, true);
                     if (dropIntersects.length > 0) {
                         intersects = dropIntersects;
+                        finalDirection = adjustedDir;
                     }
                 }
             }
         }
 
-        this._processRaycastHits(intersects, origin, direction, config, tracerStart);
+        this._processRaycastHits(intersects, origin, finalDirection, config, tracerStart);
     }
 
     // 检查物体是否可被子弹穿透
@@ -2496,59 +2638,114 @@ export class WeaponSystem {
     }
 
     _createTracer(start, end, color, dropAmount = 0) {
-        // 使用圆柱体代替线段，更粗的弹道
         const dir = this._tmpVec1.copy(end).sub(start);
         const dist = dir.length();
         if (dist < 0.1) return;
 
-        // 不同武器弹道粗细不同
-        const config = this.currentWeapon ? this.currentWeapon.config : null;
-        const thickness = config && config.type === 'sniper' ? 0.015 : config && config.type === 'shotgun' ? 0.02 : 0.008;
-
-        // 按颜色缓存弹道材质
-        const colorKey = color;
-        if (!this._tracerMatCache[colorKey]) {
-            this._tracerMatCache[colorKey] = new THREE.MeshBasicMaterial({
-                color: color,
-                transparent: true,
-                opacity: 0.9,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false,
-            });
-        }
-
-        let line;
-        if (dropAmount > 0.05 && dist > 10) {
-            // === 曲线弹道（真实弹道下坠可视化）===
-            // 用二次贝塞尔曲线模拟抛物线：控制点在直线中点正下方 dropAmount/2 处
-            // 这使得曲线中点正好下坠 dropAmount/4，与物理抛物线 P(t)=P0+v*t-0.5*g*t² 吻合
-            const mid = this._tmpVec2.copy(start).add(end).multiplyScalar(0.5);
-            mid.y -= dropAmount * 0.5;
-            const curve = new THREE.QuadraticBezierCurve3(
-                start.clone(),
-                mid.clone(),
-                end.clone()
-            );
-            const geo = new THREE.TubeGeometry(curve, Math.min(12, Math.max(5, Math.floor(dist / 15))), thickness, 5, false);
-            line = new THREE.Mesh(geo, this._tracerMatCache[colorKey]);
-        } else {
-            // === 直线弹道（近距离无下坠）===
-            dir.normalize();
-            const geo = new THREE.CylinderGeometry(thickness, thickness * 0.5, dist, 6);
-            line = new THREE.Mesh(geo, this._tracerMatCache[colorKey]);
-            const mid = this._tmpVec2.copy(start).add(end).multiplyScalar(0.5);
-            line.position.copy(mid);
-            line.quaternion.setFromUnitVectors(this._tmpVec3.set(0, 1, 0), dir);
-        }
-
-        this.scene.add(line);
         while (this.tracers.length >= this._maxTracers) {
             const old = this.tracers.shift();
-            if (!old) break;
-            this.scene.remove(old.mesh);
-            if (old.mesh.geometry) old.mesh.geometry.dispose();
+            if (old) this._releaseTracer(old);
         }
-        this.tracers.push({ mesh: line, life: 0.1, maxLife: 0.1, isTracer: true });
+
+        const config = this.currentWeapon ? this.currentWeapon.config : null;
+        const thickness = config?.type === 'sniper' ? 0.015 : config?.type === 'shotgun' ? 0.02 : 0.008;
+        let entry;
+
+        if (dropAmount > 0.05 && dist > 10) {
+            entry = this._acquireCurvedTracer();
+            const positions = entry.positions;
+            const segments = this._tracerSegments;
+            const midX = (start.x + end.x) * 0.5;
+            const midY = (start.y + end.y) * 0.5 + dropAmount * 0.5;
+            const midZ = (start.z + end.z) * 0.5;
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const inv = 1 - t;
+                const index = i * 3;
+                positions[index] = inv * inv * start.x + 2 * inv * t * midX + t * t * end.x;
+                positions[index + 1] = inv * inv * start.y + 2 * inv * t * midY + t * t * end.y;
+                positions[index + 2] = inv * inv * start.z + 2 * inv * t * midZ + t * t * end.z;
+            }
+            entry.geometry.attributes.position.needsUpdate = true;
+            entry.material.color.setHex(color);
+            entry.material.opacity = 0.9;
+            entry.material.linewidth = Math.max(1, thickness * 180);
+        } else {
+            entry = this._acquireStraightTracer();
+            dir.multiplyScalar(1 / dist);
+            entry.mesh.position.copy(this._tmpVec2.copy(start).add(end).multiplyScalar(0.5));
+            entry.mesh.quaternion.setFromUnitVectors(this._tmpVec3.set(0, 1, 0), dir);
+            entry.mesh.scale.set(thickness, dist, thickness);
+            entry.material.color.setHex(color);
+            entry.material.opacity = 0.9;
+        }
+
+        this.scene.add(entry.mesh);
+        this.tracers.push({
+            mesh: entry.mesh,
+            entry,
+            poolType: entry.poolType,
+            life: 0.1,
+            maxLife: 0.1,
+            isTracer: true,
+        });
+    }
+
+    _acquireStraightTracer() {
+        const entry = this._straightTracerPool.pop();
+        if (entry) return entry;
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+        });
+        return {
+            poolType: 'straight',
+            material,
+            mesh: new THREE.Mesh(this._straightTracerGeo, material),
+        };
+    }
+
+    _acquireCurvedTracer() {
+        const entry = this._curvedTracerPool.pop();
+        if (entry) return entry;
+        const positions = new Float32Array((this._tracerSegments + 1) * 3);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.LineBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+        });
+        const mesh = new THREE.Line(geometry, material);
+        mesh.frustumCulled = false;
+        return {
+            poolType: 'curved',
+            positions,
+            geometry,
+            material,
+            mesh,
+        };
+    }
+
+    _releaseTracer(tracer) {
+        if (!tracer?.entry) return;
+        if (tracer.mesh.parent) tracer.mesh.parent.remove(tracer.mesh);
+        tracer.entry.material.opacity = 0;
+        const pool = tracer.poolType === 'curved' ? this._curvedTracerPool : this._straightTracerPool;
+        if (pool.length < this._maxTracers) pool.push(tracer.entry);
+        else {
+            tracer.entry.material.dispose();
+            if (tracer.poolType === 'curved') tracer.entry.geometry.dispose();
+        }
+    }
+
+    createBloodEffect(point, direction) {
+        this._createBloodEffect(point, direction);
     }
 
     // 血液飞溅特效
@@ -2984,7 +3181,7 @@ export class WeaponSystem {
         }
 
         const groundY = this.world.getHeight(position.x, position.z);
-        const scorchY = Math.max(position.y, groundY) + 0.05;
+        const scorchY = groundY + 0.02;
 
         // === 冲击波环（表现爆炸范围，沿地面向外扩散）===
         const shockwave = new THREE.Mesh(
@@ -3017,31 +3214,25 @@ export class WeaponSystem {
         });
 
         // === 地面焦痕（持久的爆炸痕迹，缓慢淡出）===
-        const scorch = new THREE.Mesh(
-            new THREE.CircleGeometry(Math.min(radius * 0.7, 2.8), 12),
-            new THREE.MeshBasicMaterial({ color: 0x1a0800, transparent: true, opacity: 0.75, depthWrite: false })
-        );
+        if (!this._scorchGeo) this._scorchGeo = new THREE.CircleGeometry(1, 12);
+        const scorchMat = new THREE.MeshBasicMaterial({ color: 0x1a0800, transparent: true, opacity: 0.75, depthWrite: false });
+        const scorch = new THREE.Mesh(this._scorchGeo, scorchMat);
         scorch.rotation.x = -Math.PI / 2;
         scorch.position.set(position.x, scorchY + 0.01, position.z);
-        this.scene.add(scorch);
-        // 焦痕8秒后开始淡出，10秒消失
-        const scorchTimer = setTimeout(() => {
-            let opacity = 0.75;
-            const fadeScorch = () => {
-                if (this._disposed) return;
-                opacity -= 0.015;
-                if (opacity <= 0 || !scorch.parent) {
-                    if (scorch.parent) this.scene.remove(scorch);
-                    scorch.geometry.dispose();
-                    scorch.material.dispose();
-                    return;
-                }
-                scorch.material.opacity = opacity;
-                requestAnimationFrame(fadeScorch);
-            };
-            fadeScorch();
-        }, 8000);
-        this._pendingTimeouts.push(scorchTimer);
+        scorch.scale.setScalar(Math.min(radius * 0.7, 2.8));
+        this.transientFx?.add({
+            owner: this,
+            category: 'mark',
+            priority: 0,
+            life: 8.75,
+            object: scorch,
+            update: (effect) => {
+                const fade = Math.max(0, effect.elapsed - 8) / 0.75;
+                scorchMat.opacity = (1 - fade) * 0.75;
+            },
+            release: () => scorchMat.dispose(),
+            onReject: () => scorchMat.dispose(),
+        });
 
         if (this.audio) this.audio.playExplosion(position);
 
@@ -3051,7 +3242,7 @@ export class WeaponSystem {
         }
     }
 
-    update(dt, now, playerState) {
+    update(dt, now, playerState, allowFire = true) {
         // 武器切换动画
         if (this.switchAnimTimer > 0) {
             this.switchAnimTimer -= dt;
@@ -3066,7 +3257,7 @@ export class WeaponSystem {
         }
 
         // 持续射击（开枪无限制：切换动画期间也允许射击）
-        if (this.isFiring && this.currentWeapon) {
+        if (allowFire && this.isFiring && this.currentWeapon) {
             if (this.isHeldFireMode()) {
                 this.tryFire(now);
             }
@@ -3163,9 +3354,10 @@ export class WeaponSystem {
         if (this._pumpTimer > 0) this._pumpTimer -= dt;
         if (this._pumpKick > 0) this._pumpKick = Math.max(0, this._pumpKick - dt * 4);
 
-        // 瞄准动画：过渡速率按武器 adsTime 配置（狙击慢、手枪快），指数逼近约 3×adsTime 到位
+        // 瞄准动画：过渡速率按瞄具 ADS 时间（机械快、高倍镜慢），指数逼近约 3×adsTime 到位
         const targetAim = this.isAiming ? 1 : 0;
-        const aimRate = this.currentWeapon?.config?.adsTime ? 3 / this.currentWeapon.config.adsTime : 10;
+        const adsTime = this.getAdsTime ? this.getAdsTime() : (this.currentWeapon?.config?.adsTime || 0.25);
+        const aimRate = adsTime ? 3 / adsTime : 10;
         this.aimLerp = THREE.MathUtils.lerp(this.aimLerp, targetAim, dt * aimRate);
 
         // 武器模型位置动画
@@ -3424,9 +3616,7 @@ export class WeaponSystem {
             t.life -= dt;
             t.mesh.material.opacity = (t.life / t.maxLife) * 0.8;
             if (t.life <= 0) {
-                this.scene.remove(t.mesh);
-                t.mesh.geometry.dispose();
-                // 弹道材质是共享的，不释放
+                this._releaseTracer(t);
                 this.tracers.splice(i, 1);
             }
         }
@@ -3717,6 +3907,10 @@ export class WeaponSystem {
         state.reserveAmmo = this.currentWeapon.reserveAmmo;
         state.magSize = this.currentWeapon.config.magSize;
         state.isReloading = this.isReloading;
+        state.reloadProgress = this.isReloading && this.reloadDuration > 0
+            ? THREE.MathUtils.clamp(1 - this.reloadTimer / this.reloadDuration, 0, 1)
+            : 0;
+        state.reloadRemaining = this.isReloading ? Math.max(0, this.reloadTimer) : 0;
         state.isAiming = this.isAiming;
         state.currentIdx = this.currentWeaponIdx;
         state.grenadeCount = this.grenadeCount;
@@ -3725,6 +3919,9 @@ export class WeaponSystem {
         state.hasFireModeToggle = this._getAvailableFireModes(this.currentWeapon.config).length > 1;
         state.isHoldingBreath = this.isHoldingBreath;
         state.isBraced = this.isBraced;
+        state.opticName = this.currentWeapon.optic?.name || '';
+        state.opticStyle = this.currentWeapon.optic?.style || 'iron';
+        state.opticZoom = this.currentWeapon.optic?.zoom || this.currentWeapon.config.zoom || 1.0;
         return state;
     }
 
@@ -3747,30 +3944,48 @@ export class WeaponSystem {
         return this.aimLerp;
     }
 
-    // 是否为狙击镜瞄准（zoom > 2 才显示遮罩；等开镜过渡过半再遮罩，让玩家看到放大过程）
+    // 是否为高倍镜瞄准（combat/sniper 风格才显示圆形遮罩；反射/机械只缩放 FOV）
     isScoped() {
         if (!this.currentWeapon) return false;
-        return this.isAiming && this.currentWeapon.config.zoom >= 2.0 && this.aimLerp > 0.55;
+        const optic = this.currentWeapon.optic;
+        if (!optic) return false;
+        const scopedStyle = optic.style === 'combat' || optic.style === 'sniper';
+        return this.isAiming && scopedStyle && this.aimLerp > 0.55;
     }
 
-    // 获取当前武器缩放倍率（按 aimLerp 平滑过渡，开镜瞬间即开始放大）
+    // 获取当前瞄具缩放倍率（按 aimLerp 平滑过渡，开镜瞬间即开始放大）
     getZoom() {
         if (!this.currentWeapon) return 1.0;
-        const zoom = this.currentWeapon.config.zoom || 1.0;
+        const optic = this.currentWeapon.optic;
+        const zoom = optic?.zoom || this.currentWeapon.config.zoom || 1.0;
         if (!this.isAiming && this.aimLerp < 0.02) return 1.0;
         // 用 aimLerp 插值：过渡期间放大率渐进，到位后为完整倍率
         return 1 + (zoom - 1) * Math.min(1, this.aimLerp * 1.25);
     }
 
+    // 当前瞄具的 ADS 速度倍率（机械瞄具更快，高倍镜更慢）
+    getAdsTime() {
+        if (!this.currentWeapon) return 0.25;
+        const baseAds = this.currentWeapon.config.adsTime || 0.25;
+        const mult = this.currentWeapon.optic?.adsTimeMult || 1.0;
+        return baseAds * mult;
+    }
+
     dispose() {
         this.stopFire();
+        this.transientFx?.cancelOwner(this);
 
-        for (const tracer of this.tracers) {
-            if (!tracer?.mesh) continue;
-            this.scene.remove(tracer.mesh);
-            if (tracer.mesh.geometry) tracer.mesh.geometry.dispose();
-        }
+        for (const tracer of this.tracers) this._releaseTracer(tracer);
         this.tracers = [];
+        for (const entry of this._straightTracerPool) entry.material.dispose();
+        for (const entry of this._curvedTracerPool) {
+            entry.geometry.dispose();
+            entry.material.dispose();
+        }
+        this._straightTracerPool = [];
+        this._curvedTracerPool = [];
+        this._straightTracerGeo?.dispose();
+        this._scorchGeo?.dispose();
 
         for (const impact of this.impacts) {
             this._disposeImpactEntry(impact);
@@ -3795,11 +4010,6 @@ export class WeaponSystem {
         this._bloodMat?.dispose();
         this._bloodMistMat?.dispose();
         this._bloodMistGeo?.dispose();
-
-        for (const mat of Object.values(this._tracerMatCache || {})) {
-            if (mat?.dispose) mat.dispose();
-        }
-        this._tracerMatCache = {};
 
         // 共享特效几何体（弹孔/烟雾/尘土，懒创建，dispose 时统一释放）
         if (this._sharedFx) {

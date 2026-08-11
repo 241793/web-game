@@ -1,109 +1,205 @@
 // 突破模式 - 攻方依次突破扇区防线
-import { GameMode } from '../GameMode.js?v=20260802.4';
+import { GameMode } from '../GameMode.js?v=20260811.1';
 
 export class BreakthroughMode extends GameMode {
     constructor(game, modeConfig) {
         super(game, modeConfig);
-        this.currentSector = 0;
-        this.totalSectors = modeConfig.sectors || 3;
-        this.attackerTeam = modeConfig.attackerTeam !== undefined ? modeConfig.attackerTeam : 0;
+        this.attackerTeam = modeConfig.attackerTeam ?? 0;
         this.defenderTeam = 1 - this.attackerTeam;
-        this.sectorCaptureTimer = 0;
-        this._sectorAnnounced = false;
+        this.sectorIndex = 0;
+        this.sectors = [];
+        this.transitionTimer = 0;
+        this.overtime = false;
+        this.overtimeRemaining = 0;
+        this._transitionPending = false;
+        this._maxMatchDuration = modeConfig.maxMatchDuration || modeConfig.matchDuration;
     }
 
     onMatchStart() {
         super.onMatchStart();
-        this.currentSector = 0;
+        this.sectors = this._buildSectors();
+        this.sectorIndex = 0;
+        this.transitionTimer = 0;
+        this.overtime = false;
+        this.overtimeRemaining = 0;
+        this._maxMatchDuration = this.cfg.maxMatchDuration || this.cfg.matchDuration;
+        this.game.world?.resetCapturePoints?.();
         this._activateSector(0);
-        // 通知攻守双方
-        if (this.game.hud) {
-            this.game.hud.showNotification(this.attackerTeam === 0 ? '我方为攻方，突破敌方防线！' : '我方为守方，坚守阵地！', 4);
-        }
+        this.game.hud?.showNotification?.(
+            this.attackerTeam === 0 ? '我方为攻方，突破敌方防线！' : '我方为守方，坚守阵地！',
+            4
+        );
     }
 
-    // 激活指定扇区的据点，锁定其他扇区
-    _activateSector(sectorIndex) {
-        if (!this.game.world || !this.game.world.capturePoints) return;
-        const cps = this.game.world.capturePoints;
-        // totalSectors 不超过实际据点数
-        this.totalSectors = Math.min(this.totalSectors, cps.length);
-        for (let i = 0; i < cps.length; i++) {
-            const cp = cps[i];
-            // 只有当前扇区的据点可占领
-            cp.locked = (i !== sectorIndex);
-            if (cp.locked) {
-                cp.contested = false;
-                cp.captureProgress = 0;
-            }
-        }
+    onPlayerDeath(dead, killer) {
+        if (!dead || dead.team !== this.attackerTeam) return;
+        super.onPlayerDeath(dead, killer);
     }
 
     update(dt) {
-        super.update(dt);
         if (this.winner) return;
+        if (this.transitionTimer > 0) {
+            this.transitionTimer = Math.max(0, this.transitionTimer - dt);
+            if (this.transitionTimer <= 0) this._activateSector(this.sectorIndex);
+            return;
+        }
 
-        // 检查当前扇区是否已被攻占
-        const cps = this.game.world ? this.game.world.capturePoints : [];
-        if (this.currentSector < cps.length && this.currentSector < this.totalSectors) {
-            const currentCp = cps[this.currentSector];
-            if (currentCp && currentCp.team === this.attackerTeam) {
-                // 当前扇区已被攻方占领，推进到下一扇区
-                this.currentSector++;
-                if (this.currentSector < this.totalSectors) {
-                    this._activateSector(this.currentSector);
-                    // 攻方获得额外票数奖励
-                    this.teamTickets[this.attackerTeam] += 50;
-                    if (this.game.hud) {
-                        const sectorName = currentCp.name || `第${this.currentSector}扇区`;
-                        this.game.hud.showNotification(`攻方已突破 ${sectorName}！战线推进`, 3);
-                    }
-                } else {
-                    // 所有扇区攻占完毕，攻方获胜
-                    this.winner = this.attackerTeam === 0 ? 'friendly' : 'enemy';
-                }
+        super.update(dt);
+        if (this.winner || this.transitionTimer > 0) return;
+
+        const points = this.getCurrentSectorPoints();
+        if (points.length > 0 && points.every(cp => cp.team === this.attackerTeam)) {
+            this._advanceSector();
+        }
+    }
+
+    onTimeExpired(dt) {
+        if (this.winner || this.transitionTimer > 0) return;
+        const points = this.getCurrentSectorPoints();
+        const pressure = points.some(cp => cp.captureProgress > 0 && cp.capturingTeam === this.attackerTeam) ||
+            points.some(cp => {
+                const attackerWeight = this.attackerTeam === 0 ? cp.friendlyWeight : cp.enemyWeight;
+                const defenderWeight = this.attackerTeam === 0 ? cp.enemyWeight : cp.friendlyWeight;
+                const attackerCount = this.attackerTeam === 0 ? cp.friendlyCount : cp.enemyCount;
+                return (attackerWeight || 0) > (defenderWeight || 0) && (attackerCount || 0) > 0;
+            });
+        if (!pressure) {
+            this.winner = this._teamResult(this.defenderTeam);
+            return;
+        }
+        if (!this.overtime) {
+            this.overtime = true;
+            this.overtimeRemaining = this.cfg.overtimeDuration || 20;
+            this.game.hud?.showNotification?.('突破加时！继续争夺前线！', 3);
+            return;
+        }
+        this.overtimeRemaining = Math.max(0, this.overtimeRemaining - dt);
+        if (this.overtimeRemaining <= 0) this.winner = this._teamResult(this.defenderTeam);
+    }
+
+    onCapturePoint(cp, team) {
+        if (this.getCurrentSectorPoints().includes(cp) && team === this.attackerTeam) {
+            this.game.hud?.showNotification?.(`攻方已控制 ${cp.name}，继续夺取当前扇区`, 2);
+        }
+    }
+
+    onStrategicObjectiveDestroyed(obj, team) {
+        if (team === this.attackerTeam) {
+            this.matchTimer = Math.min(this._maxMatchDuration, this.matchTimer + (this.cfg.objectiveTimeBonus || 60));
+            this.teamTickets[this.attackerTeam] = Math.min(
+                this.cfg.startingTickets + (this.cfg.ticketReserveCap || 20),
+                this.teamTickets[this.attackerTeam] + (this.cfg.objectiveTicketBonus || 10)
+            );
+            if (this.game.hud) {
+                this.game.hud.showNotification(`战略目标摧毁！攻方获得增援与加时`, 3);
             }
         }
     }
 
-    onCapturePoint(cp, team) {
-        // 突破模式据点占领不加分，但推进战线
-        if (team === this.attackerTeam) {
-            this.game.hud.showNotification(`攻方已突破第 ${this.currentSector + 1} 扇区！`, 3);
-        }
-    }
-
-    // 突破模式：攻方票数耗尽则守方获胜，守方票数耗尽则攻方获胜
     checkGameOver() {
         if (this.winner) return this.winner;
-        // 攻方票数耗尽 → 守方获胜
-        if (this.teamTickets[this.attackerTeam] <= 0) {
-            this.winner = this.defenderTeam === 0 ? 'friendly' : 'enemy';
-            return this.winner;
-        }
-        // 守方票数耗尽 → 攻方获胜
-        if (this.teamTickets[this.defenderTeam] <= 0) {
-            this.winner = this.attackerTeam === 0 ? 'friendly' : 'enemy';
-            return this.winner;
-        }
-        // 所有扇区攻占
-        if (this.currentSector >= this.totalSectors) {
-            this.winner = this.attackerTeam === 0 ? 'friendly' : 'enemy';
-            return this.winner;
-        }
-        // 时间耗尽 → 守方获胜
-        if (this.matchTimer <= 0) {
-            this.winner = this.defenderTeam === 0 ? 'friendly' : 'enemy';
-            return this.winner;
-        }
+        if (this.teamTickets[this.attackerTeam] <= 0) return (this.winner = this._teamResult(this.defenderTeam));
+        if (this.sectorIndex >= this.sectors.length) return (this.winner = this._teamResult(this.attackerTeam));
+        if (this.overtime && this.overtimeRemaining <= 0) return (this.winner = this._teamResult(this.defenderTeam));
         return null;
+    }
+
+    getCurrentSectorPoints() {
+        const names = this.sectors[this.sectorIndex] || [];
+        return names.map(name => this.game.world.capturePoints.find(cp => cp.name === name)).filter(Boolean);
+    }
+
+    getPriorityTarget(team) {
+        const points = this.getCurrentSectorPoints();
+        if (team === this.attackerTeam) return points.find(cp => cp.team !== team) || points[0] || null;
+        return points.slice().sort((a, b) => ((b.enemyCount || 0) + (b.friendlyCount || 0)) - ((a.enemyCount || 0) + (a.friendlyCount || 0)))[0] || null;
+    }
+
+    getDeployPoint(team) {
+        if (team === this.attackerTeam) {
+            const pastNames = this.sectors.slice(0, this.sectorIndex).flat();
+            for (let i = pastNames.length - 1; i >= 0; i--) {
+                const cp = this.game.world.capturePoints.find(point => point.name === pastNames[i]);
+                if (cp?.team === team) return cp;
+            }
+            return this.game.world.getTeamSpawnPoint?.(team) || null;
+        }
+        const nextNames = this.sectors[this.sectorIndex + 1] || [];
+        const rearPoint = nextNames.length
+            ? this.game.world.capturePoints.find(point => point.name === nextNames[0])
+            : null;
+        return rearPoint || this.game.world.getTeamSpawnPoint?.(team) || null;
     }
 
     getUIData() {
         const data = super.getUIData();
-        data.currentSector = this.currentSector + 1;
-        data.totalSectors = this.totalSectors;
+        data.currentSector = Math.min(this.sectorIndex + 1, this.sectors.length);
+        data.totalSectors = this.sectors.length;
         data.attackerTeam = this.attackerTeam;
+        data.sectorPointNames = this.sectors[this.sectorIndex] || [];
+        data.transitionTimer = this.transitionTimer;
+        data.overtime = this.overtime;
+        data.overtimeRemaining = this.overtimeRemaining;
+        data.defenderUnlimited = true;
+        data.modeHint = this.overtime
+            ? `突破加时 ${Math.ceil(this.overtimeRemaining)}s`
+            : this.transitionTimer > 0
+                ? `战线转移 ${Math.ceil(this.transitionTimer)}s`
+                : `扇区 ${data.currentSector}/${data.totalSectors}：${data.sectorPointNames.join(' + ')}`;
         return data;
+    }
+
+    _buildSectors() {
+        const configured = this.game.world?.mapConfig?.breakthroughSectors;
+        if (Array.isArray(configured) && configured.length) return configured.map(group => group.slice());
+        const points = this.game.world?.capturePoints || [];
+        const count = Math.max(1, this.cfg.sectors || points.length);
+        return points.reduce((groups, cp, index) => {
+            const groupIndex = Math.min(count - 1, Math.floor(index * count / Math.max(1, points.length)));
+            (groups[groupIndex] ||= []).push(cp.name);
+            return groups;
+        }, []);
+    }
+
+    _activateSector(index) {
+        const points = this.game.world?.capturePoints || [];
+        for (const cp of points) {
+            const past = this.sectors.slice(0, index).some(group => group.includes(cp.name));
+            const current = (this.sectors[index] || []).includes(cp.name);
+            this.game.world.setCapturePointState?.(cp, {
+                team: past ? this.attackerTeam : this.defenderTeam,
+                locked: !current,
+                capturingTeam: -1,
+                captureProgress: 0,
+                contested: false,
+            });
+        }
+        this.overtime = false;
+        this.overtimeRemaining = 0;
+    }
+
+    _advanceSector() {
+        if (this._transitionPending) return;
+        this._transitionPending = true;
+        this.sectorIndex++;
+        if (this.sectorIndex >= this.sectors.length) {
+            this.winner = this._teamResult(this.attackerTeam);
+            return;
+        }
+        this.teamTickets[this.attackerTeam] = Math.min(
+            this.cfg.startingTickets + (this.cfg.ticketReserveCap || 20),
+            this.teamTickets[this.attackerTeam] + (this.cfg.sectorTicketBonus || 35)
+        );
+        this.matchTimer = Math.min(this._maxMatchDuration, this.matchTimer + (this.cfg.sectorTimeBonus || 150));
+        this.transitionTimer = this.cfg.transitionDuration || 8;
+        this._transitionPending = false;
+        for (const cp of this.game.world.capturePoints || []) {
+            this.game.world.setCapturePointState?.(cp, { team: cp.team, locked: true });
+        }
+        this.game.hud?.showNotification?.(`战线推进！下一扇区：${(this.sectors[this.sectorIndex] || []).join(' + ')}`, 3);
+    }
+
+    _teamResult(team) {
+        return team === 0 ? 'friendly' : 'enemy';
     }
 }

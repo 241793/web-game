@@ -1817,19 +1817,24 @@ export class ObstacleSystem {
     }
 
     _createBattlefieldFlow(terrain) {
-        const mainRoad = 0x2f3335;
-        const sideRoute = 0x4b473a;
-        const helipad = 0x363b3d;
-
-        // 明确三条路线：中线载具路、两条步兵侧翼路。
-        this._createGroundPatch(-52, -52, 92, 7, terrain, mainRoad, 0.7, Math.PI / 4);
-        this._createGroundPatch(52, 52, 92, 7, terrain, mainRoad, 0.7, Math.PI / 4);
-        this._createGroundPatch(-48, 30, 96, 5.5, terrain, sideRoute, 0.55, -Math.PI / 5);
-        this._createGroundPatch(48, -30, 96, 5.5, terrain, sideRoute, 0.55, -Math.PI / 5);
-        this._createGroundPatch(-98, -98, 36, 24, terrain, sideRoute, 0.5, 0);
-        this._createGroundPatch(98, 98, 36, 24, terrain, sideRoute, 0.5, 0);
-        this._createGroundPatch(-82, -66, 18, 18, terrain, helipad, 0.55, 0);
-        this._createGroundPatch(82, 66, 18, 18, terrain, helipad, 0.55, 0);
+        const routeStyles = {
+            main: { color: 0x2f3335, opacity: 0.7 },
+            side: { color: 0x4b473a, opacity: 0.55 },
+        };
+        const routes = this.mapConfig?.tacticalLayout?.routes || [];
+        for (const route of routes) {
+            const style = routeStyles[route.kind] || routeStyles.side;
+            this._createGroundPatch(
+                route.x,
+                route.z,
+                route.width,
+                route.depth,
+                terrain,
+                route.color ?? style.color,
+                route.opacity ?? style.opacity,
+                route.rotation || 0
+            );
+        }
 
         this._createCapturePointCover(terrain);
         this._createVehicleLaneBarriers(terrain);
@@ -1838,53 +1843,57 @@ export class ObstacleSystem {
     }
 
     _createBattlefieldSetPieces(terrain) {
-        const clusters = [
-            { x: -76, z: -30, teamColor: 0x58725c, rot: 0.3 },
-            { x: 76, z: 30, teamColor: 0x725858, rot: -0.3 },
-            { x: -18, z: 58, teamColor: 0x5d6658, rot: 1.15 },
-            { x: 18, z: -58, teamColor: 0x665d58, rot: -1.15 },
-            { x: -58, z: 58, teamColor: 0x5a645f, rot: 0.75 },
-            { x: 58, z: -58, teamColor: 0x645a5f, rot: -0.75 },
-        ];
-
-        for (const c of clusters) {
-            const y = terrain.getHeight(c.x, c.z);
-            this._createCoverBlock(c.x, c.z, 5.5, 1.15, 2.2, terrain, c.teamColor, c.rot, 'field_command_cover');
-            this._createCoverBlock(c.x + Math.cos(c.rot) * 4.5, c.z + Math.sin(c.rot) * 4.5, 3.2, 0.85, 1.1, terrain, c.teamColor, c.rot, 'field_supply_cover');
+        const clusters = this.mapConfig?.tacticalLayout?.coverClusters || [];
+        for (const cluster of clusters) {
+            const rotation = cluster.rotation || 0;
+            const color = cluster.color ?? 0x6c6755;
+            const y = terrain.getHeight(cluster.x, cluster.z);
+            this._createCoverBlock(cluster.x, cluster.z, 5.5, 1.15, 2.2, terrain, color, rotation, 'field_command_cover');
+            this._createCoverBlock(
+                cluster.x + Math.cos(rotation) * 4.5,
+                cluster.z + Math.sin(rotation) * 4.5,
+                3.2,
+                0.85,
+                1.1,
+                terrain,
+                color,
+                rotation,
+                'field_supply_cover'
+            );
 
             for (let i = -2; i <= 2; i++) {
-                const ox = Math.cos(c.rot) * i * 1.4;
-                const oz = Math.sin(c.rot) * i * 1.4;
-                this._createCoverBlock(c.x + ox, c.z + oz, 1.2, 0.55, 0.55, terrain, 0x7a6a4a, c.rot, 'field_sandbag');
+                const ox = Math.cos(rotation) * i * 1.4;
+                const oz = Math.sin(rotation) * i * 1.4;
+                this._createCoverBlock(cluster.x + ox, cluster.z + oz, 1.2, 0.55, 0.55, terrain, 0x7a6a4a, rotation, 'field_sandbag');
             }
 
             for (let i = 0; i < 3; i++) {
-                const px = c.x + Math.cos(c.rot + Math.PI / 2) * (i * 0.9 - 0.9);
-                const pz = c.z + Math.sin(c.rot + Math.PI / 2) * (i * 0.9 - 0.9);
+                const px = cluster.x + Math.cos(rotation + Math.PI / 2) * (i * 0.9 - 0.9);
+                const pz = cluster.z + Math.sin(rotation + Math.PI / 2) * (i * 0.9 - 0.9);
                 const box = new THREE.Mesh(
                     new THREE.BoxGeometry(0.95, 0.8, 0.85),
                     new THREE.MeshStandardMaterial({ color: 0x6b5a34, roughness: 0.9 })
                 );
                 box.position.set(px, y + 0.4, pz);
-                box.rotation.y = c.rot;
+                box.rotation.y = rotation;
                 this.scene.add(box);
-                this.addCollisionBox(px, y, pz, 0.95, 0.8, 0.85, box, c.rot);
+                this.addCollisionBox(px, y, pz, 0.95, 0.8, 0.85, box, rotation);
             }
 
             const mast = new THREE.Mesh(
                 new THREE.CylinderGeometry(0.12, 0.16, 8.5, 8),
                 new THREE.MeshStandardMaterial({ color: 0x4e5660, roughness: 0.7, metalness: 0.35 })
             );
-            mast.position.set(c.x + 2.4, y + 4.25, c.z - 1.8);
+            mast.position.set(cluster.x + 2.4, y + 4.25, cluster.z - 1.8);
             this.scene.add(mast);
-            this.addCollisionBox(c.x + 2.4, y, c.z - 1.8, 0.35, 8.5, 0.35, mast);
+            this.addCollisionBox(cluster.x + 2.4, y, cluster.z - 1.8, 0.35, 8.5, 0.35, mast);
 
             const dish = new THREE.Mesh(
                 new THREE.SphereGeometry(0.85, 8, 6),
                 new THREE.MeshStandardMaterial({ color: 0x8ca1a8, roughness: 0.45, metalness: 0.35 })
             );
             dish.scale.set(1.3, 0.35, 0.9);
-            dish.position.set(c.x + 2.9, y + 6.2, c.z - 1.6);
+            dish.position.set(cluster.x + 2.9, y + 6.2, cluster.z - 1.6);
             dish.rotation.z = Math.PI / 8;
             this.scene.add(dish);
 
@@ -1893,33 +1902,8 @@ export class ObstacleSystem {
                 new THREE.MeshBasicMaterial({ color: 0x221d16, transparent: true, opacity: 0.55 })
             );
             crater.rotation.x = -Math.PI / 2;
-            crater.position.set(c.x - 2.2, y + 0.04, c.z + 2.0);
+            crater.position.set(cluster.x - 2.2, y + 0.04, cluster.z + 2.0);
             this.scene.add(crater);
-
-            const debris = new THREE.Mesh(
-                new THREE.BoxGeometry(1.4, 0.28, 0.9),
-                new THREE.MeshStandardMaterial({ color: 0x4b4539, roughness: 1.0 })
-            );
-            debris.position.set(c.x - 1.2, y + 0.14, c.z + 0.9);
-            debris.rotation.y = c.rot * 0.8;
-            this.scene.add(debris);
-        }
-
-        for (const p of [
-            { x: -32, z: 0, rot: 0.2 },
-            { x: 32, z: 0, rot: -0.2 },
-            { x: 0, z: 32, rot: 1.55 },
-            { x: 0, z: -32, rot: -1.55 },
-        ]) {
-            const y = terrain.getHeight(p.x, p.z);
-            this._createCoverBlock(p.x, p.z, 2.8, 0.9, 1.1, terrain, 0x6c6652, p.rot, 'roadside_crate');
-            const barrel = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.42, 0.42, 0.9, 10),
-                new THREE.MeshStandardMaterial({ color: 0x2f3940, roughness: 0.85, metalness: 0.15 })
-            );
-            barrel.position.set(p.x + 1.2, y + 0.45, p.z + 0.4);
-            this.scene.add(barrel);
-            this.addCollisionBox(p.x + 1.2, y, p.z + 0.4, 0.84, 0.9, 0.84, barrel, 0);
         }
     }
 
@@ -2012,31 +1996,38 @@ export class ObstacleSystem {
     }
 
     _createVehicleLaneBarriers(terrain) {
-        const barrierColor = 0x65655e;
-        const lanePieces = [
-            { x: -74, z: -48, rot: Math.PI / 4 }, { x: -55, z: -34, rot: Math.PI / 4 },
-            { x: -32, z: -20, rot: Math.PI / 4 }, { x: 32, z: 20, rot: Math.PI / 4 },
-            { x: 55, z: 34, rot: Math.PI / 4 }, { x: 74, z: 48, rot: Math.PI / 4 },
-            { x: -74, z: -64, rot: Math.PI / 4 }, { x: -52, z: -46, rot: Math.PI / 4 },
-            { x: 52, z: 46, rot: Math.PI / 4 }, { x: 74, z: 64, rot: Math.PI / 4 },
-        ];
-        for (const p of lanePieces) {
-            this._createCoverBlock(p.x, p.z, 5.5, 1.15, 0.8, terrain, barrierColor, p.rot, 'vehicle_lane_barrier');
+        const lanePieces = this.mapConfig?.tacticalLayout?.laneBarriers || [];
+        for (const piece of lanePieces) {
+            this._createCoverBlock(
+                piece.x,
+                piece.z,
+                piece.width || 5.5,
+                piece.height || 1.15,
+                piece.depth || 0.8,
+                terrain,
+                piece.color ?? 0x65655e,
+                piece.rotation || 0,
+                'vehicle_lane_barrier'
+            );
         }
     }
 
     _createSpawnAreaCover(terrain) {
-        const friendly = 0x536854;
-        const enemy = 0x6b4f4f;
-        for (const p of [
-            { x: -124, z: -118, rot: 0, color: friendly },
-            { x: -110, z: -132, rot: Math.PI / 2, color: friendly },
-            { x: -92, z: -86, rot: Math.PI / 4, color: friendly },
-            { x: 124, z: 118, rot: 0, color: enemy },
-            { x: 110, z: 132, rot: Math.PI / 2, color: enemy },
-            { x: 92, z: 86, rot: Math.PI / 4, color: enemy },
-        ]) {
-            this._createCoverBlock(p.x, p.z, 7, 1.4, 0.9, terrain, p.color, p.rot, 'spawn_cover');
+        const pieces = this.mapConfig?.tacticalLayout?.spawnCover || [];
+        for (const piece of pieces) {
+            const center = this.mapConfig?.spawnAreas?.[piece.team]?.center;
+            if (!center) continue;
+            this._createCoverBlock(
+                center.x + (piece.dx || 0),
+                center.z + (piece.dz || 0),
+                piece.width || 7,
+                piece.height || 1.4,
+                piece.depth || 0.9,
+                terrain,
+                piece.color ?? (piece.team === 0 ? 0x536854 : 0x6b4f4f),
+                piece.rotation || 0,
+                'spawn_cover'
+            );
         }
     }
 
@@ -2055,90 +2046,68 @@ export class ObstacleSystem {
     }
 
     _createMapLandmarks(terrain) {
-        for (const p of [
-            { x: -82, z: -66, teamColor: 0x6fa5ff },
-            { x: 82, z: 66, teamColor: 0xff7766 },
-        ]) {
-            this._createFlatStripe(p.x - 3.1, p.z, 0.65, 8.2, terrain, 0xd8d8d0, 0, 'helipad_mark');
-            this._createFlatStripe(p.x + 3.1, p.z, 0.65, 8.2, terrain, 0xd8d8d0, 0, 'helipad_mark');
-            this._createFlatStripe(p.x, p.z, 5.8, 0.65, terrain, 0xd8d8d0, 0, 'helipad_mark');
-            this._createFlatStripe(p.x, p.z - 6.2, 8.5, 0.35, terrain, p.teamColor, 0, 'helipad_team_mark');
-            this._createFlatStripe(p.x, p.z + 6.2, 8.5, 0.35, terrain, p.teamColor, 0, 'helipad_team_mark');
-
-            const y = terrain.getHeight(p.x, p.z);
-            const tower = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.14, 0.22, 8.5, 6),
-                new THREE.MeshStandardMaterial({ color: 0x47505a, roughness: 0.7, metalness: 0.3 })
-            );
-            tower.position.set(p.x + 5.5, y + 4.25, p.z - 5.2);
-            this.scene.add(tower);
-            this.addCollisionBox(p.x + 5.5, y, p.z - 5.2, 0.4, 8.5, 0.4, tower);
-
-            const beacon = new THREE.Mesh(
-                new THREE.SphereGeometry(0.28, 10, 8),
-                new THREE.MeshBasicMaterial({ color: p.teamColor, transparent: true, opacity: 0.85 })
-            );
-            beacon.position.set(p.x + 5.5, y + 8.9, p.z - 5.2);
-            this.scene.add(beacon);
-
-            for (const [lx, lz] of [
-                [p.x - 4.5, p.z - 4.5],
-                [p.x - 4.5, p.z + 4.5],
-                [p.x + 4.5, p.z - 4.5],
-                [p.x + 4.5, p.z + 4.5],
-            ]) {
-                const ly = terrain.getHeight(lx, lz);
-                const pole = new THREE.Mesh(
-                    new THREE.CylinderGeometry(0.05, 0.06, 1.6, 6),
-                    new THREE.MeshStandardMaterial({ color: 0x606060, roughness: 0.6, metalness: 0.3 })
-                );
-                pole.position.set(lx, ly + 0.8, lz);
-                this.scene.add(pole);
-                const lamp = new THREE.Mesh(
-                    new THREE.BoxGeometry(0.12, 0.12, 0.12),
-                    new THREE.MeshBasicMaterial({ color: p.teamColor })
-                );
-                lamp.position.set(lx, ly + 1.65, lz);
-                this.scene.add(lamp);
+        const landmarks = this.mapConfig?.tacticalLayout?.landmarks || [];
+        for (const landmark of landmarks) {
+            if (landmark.type === 'helipad') {
+                this._createHelipadLandmark(landmark, terrain);
+            } else if (landmark.type === 'comms') {
+                this._createCommsMast(landmark.x, landmark.z, terrain);
+            } else if (landmark.type === 'sign') {
+                this._createRouteSign(landmark.x, landmark.z, terrain, landmark.label, landmark.color ?? 0x7a6a4a);
+            } else if (landmark.type === 'checkpoint') {
+                const color = landmark.color ?? (landmark.team === 0 ? 0x5f8cff : 0xff6f5f);
+                this._createCheckpointGate(landmark.x, landmark.z, terrain, landmark.rotation || 0, color);
+            } else if (landmark.type === 'industrial') {
+                this._createIndustrialLandmark(landmark, terrain);
             }
         }
+    }
 
-        this._createCommsMast(-6, 6, terrain);
-        this._createRouteSign(-64, -30, terrain, 'B', 0x7a6a4a);
-        this._createRouteSign(30, -42, terrain, 'D', 0x5d5f58);
-        this._createRouteSign(-32, 42, terrain, 'C', 0x6c6755);
-        this._createRouteSign(64, 30, terrain, 'E', 0x6f5555);
+    _createHelipadLandmark(landmark, terrain) {
+        const color = landmark.color ?? (landmark.team === 0 ? 0x6fa5ff : 0xff7766);
+        this._createGroundPatch(landmark.x, landmark.z, 18, 18, terrain, 0x363b3d, 0.55, landmark.rotation || 0);
+        this._createFlatStripe(landmark.x - 3.1, landmark.z, 0.65, 8.2, terrain, 0xd8d8d0, 0, 'helipad_mark');
+        this._createFlatStripe(landmark.x + 3.1, landmark.z, 0.65, 8.2, terrain, 0xd8d8d0, 0, 'helipad_mark');
+        this._createFlatStripe(landmark.x, landmark.z, 5.8, 0.65, terrain, 0xd8d8d0, 0, 'helipad_mark');
+        this._createFlatStripe(landmark.x, landmark.z - 6.2, 8.5, 0.35, terrain, color, 0, 'helipad_team_mark');
+        this._createFlatStripe(landmark.x, landmark.z + 6.2, 8.5, 0.35, terrain, color, 0, 'helipad_team_mark');
 
-        for (const p of [
-            { x: -138, z: -104, rot: Math.PI / 4, color: 0x5f8cff },
-            { x: -102, z: -138, rot: Math.PI / 4, color: 0x5f8cff },
-            { x: 138, z: 104, rot: Math.PI / 4, color: 0xff6f5f },
-            { x: 102, z: 138, rot: Math.PI / 4, color: 0xff6f5f },
-        ]) {
-            this._createCheckpointGate(p.x, p.z, terrain, p.rot, p.color);
-        }
+        const y = terrain.getHeight(landmark.x, landmark.z);
+        const tower = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.14, 0.22, 8.5, 6),
+            new THREE.MeshStandardMaterial({ color: 0x47505a, roughness: 0.7, metalness: 0.3 })
+        );
+        tower.position.set(landmark.x + 5.5, y + 4.25, landmark.z - 5.2);
+        this.scene.add(tower);
+        this.addCollisionBox(landmark.x + 5.5, y, landmark.z - 5.2, 0.4, 8.5, 0.4, tower);
 
-        for (const p of [
-            { x: 94, z: -56, color: 0x72804d },
-            { x: -94, z: 56, color: 0x7c644d },
-        ]) {
-            const y = terrain.getHeight(p.x, p.z);
-            const stack = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.35, 0.45, 6.5, 8),
-                new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.85, metalness: 0.1 })
-            );
-            stack.position.set(p.x - 4.5, y + 3.25, p.z + 4.2);
-            this.scene.add(stack);
-            this.addCollisionBox(p.x - 4.5, y, p.z + 4.2, 0.9, 6.5, 0.9, stack);
+        const beacon = new THREE.Mesh(
+            new THREE.SphereGeometry(0.28, 10, 8),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 })
+        );
+        beacon.position.set(landmark.x + 5.5, y + 8.9, landmark.z - 5.2);
+        this.scene.add(beacon);
+    }
 
-            const pipe = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.12, 0.12, 8.2, 8),
-                new THREE.MeshStandardMaterial({ color: 0x56606a, roughness: 0.75, metalness: 0.35 })
-            );
-            pipe.rotation.z = Math.PI / 2;
-            pipe.position.set(p.x + 6.5, y + 3.8, p.z - 1.3);
-            this.scene.add(pipe);
-        }
+    _createIndustrialLandmark(landmark, terrain) {
+        const y = terrain.getHeight(landmark.x, landmark.z);
+        const color = landmark.color ?? 0x72804d;
+        const stack = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.35, 0.45, 6.5, 8),
+            new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.1 })
+        );
+        stack.position.set(landmark.x - 4.5, y + 3.25, landmark.z + 4.2);
+        this.scene.add(stack);
+        this.addCollisionBox(landmark.x - 4.5, y, landmark.z + 4.2, 0.9, 6.5, 0.9, stack);
+
+        const pipe = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.12, 0.12, 8.2, 8),
+            new THREE.MeshStandardMaterial({ color: 0x56606a, roughness: 0.75, metalness: 0.35 })
+        );
+        pipe.rotation.z = Math.PI / 2;
+        pipe.rotation.y = landmark.rotation || 0;
+        pipe.position.set(landmark.x + 6.5, y + 3.8, landmark.z - 1.3);
+        this.scene.add(pipe);
     }
 
     _createCommsMast(x, z, terrain) {
@@ -2912,62 +2881,15 @@ export class ObstacleSystem {
     }
 
     _createStrategicObjectives(terrain) {
-        const specs = [
-            {
-                id: 'friendly_fuel',
-                team: 0,
-                name: '我方燃料库',
-                shortLabel: '燃料库',
-                type: 'fuel',
-                x: -76,
-                z: -122,
-                color: 0x3d6f88,
-                scoreValue: 18,
-                ticketDamage: 18,
-                health: 220,
-            },
-            {
-                id: 'enemy_fuel',
-                team: 1,
-                name: '敌方燃料库',
-                shortLabel: '燃料库',
-                type: 'fuel',
-                x: 76,
-                z: 122,
-                color: 0x8b4f4f,
-                scoreValue: 30,
-                ticketDamage: 28,
-                health: 220,
-            },
-            {
-                id: 'friendly_comms',
-                team: 0,
-                name: '我方通讯站',
-                shortLabel: '通讯站',
-                type: 'comms',
-                x: -108,
-                z: -64,
-                color: 0x4e788b,
-                scoreValue: 20,
-                ticketDamage: 20,
-                health: 180,
-            },
-            {
-                id: 'enemy_comms',
-                team: 1,
-                name: '敌方通讯站',
-                shortLabel: '通讯站',
-                type: 'comms',
-                x: 108,
-                z: 64,
-                color: 0x8b5d4e,
-                scoreValue: 34,
-                ticketDamage: 32,
-                health: 180,
-            },
-        ];
-
-        for (const spec of specs) {
+        const specs = this.mapConfig?.strategicObjectives || [];
+        for (const source of specs) {
+            const spec = {
+                scoreValue: 25,
+                ticketDamage: 25,
+                health: source.type === 'comms' ? 180 : 220,
+                color: source.team === 0 ? 0x3d6f88 : 0x8b4f4f,
+                ...source,
+            };
             const y = terrain.getHeight(spec.x, spec.z);
             const objective = {
                 ...spec,
@@ -2992,7 +2914,8 @@ export class ObstacleSystem {
                 repeatX: 2,
                 repeatY: 2,
                 anisotropy: 8,
-            }, { roughness: 0.72, metalness: 0.34, bumpScale: 0.028 });
+            }, { roughness: 0.72, metalness: 0.34, bumpScale: 0.028 }).clone();
+            bodyMat.userData.sharedProcedural = false;
             const darkMat = createProceduralMaterial('metal', {
                 baseColor: 0x2d2d2d,
                 accentColor: 0x111111,
@@ -3001,7 +2924,8 @@ export class ObstacleSystem {
                 repeatX: 2,
                 repeatY: 2,
                 anisotropy: 8,
-            }, { roughness: 0.88, metalness: 0.28, bumpScale: 0.025 });
+            }, { roughness: 0.88, metalness: 0.28, bumpScale: 0.025 }).clone();
+            darkMat.userData.sharedProcedural = false;
             const glowMat = new THREE.MeshBasicMaterial({
                 color: spec.team === 0 ? 0x55ccff : 0xff6655,
                 transparent: true,

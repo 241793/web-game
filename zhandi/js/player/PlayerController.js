@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260806.2';
+import { CONFIG } from '../config.js?v=20260811.1';
 
 // 玩家控制器 - 第一人称移动、视角、姿态控制
 export class PlayerController {
@@ -132,6 +132,7 @@ export class PlayerController {
         // 兵种与技能
         this.classType = null;
         this.classConfig = null;
+        this.captureWeight = 1;
         this.gadgetCooldown = 0;
         this.gadgetMaxCooldown = 0;
         this.autoRegenTimer = 0;
@@ -153,10 +154,9 @@ export class PlayerController {
         this.isSprinting = false;
         this.onGround = true;
         this.currentHeight = CONFIG.PLAYER.height;
-        this.health = classConfig.maxHealth || CONFIG.PLAYER.maxHealth;
-        this.armor = classConfig.maxArmor || CONFIG.PLAYER.maxArmor;
-        this.maxHealth = classConfig.maxHealth || CONFIG.PLAYER.maxHealth;
-        this.maxArmor = classConfig.maxArmor || CONFIG.PLAYER.maxArmor;
+        const spawnClassType = this.classType;
+        const runtimeClassConfig = classConfig || this.classConfig || {};
+        this.applyClassConfig(spawnClassType, runtimeClassConfig);
         this.alive = true;
         this.inVehicle = null;
         this.inStaticGun = null;
@@ -194,15 +194,38 @@ export class PlayerController {
     }
 
     setClass(classType, classConfig) {
-        this.classType = classType;
-        this.classConfig = classConfig;
-        this.maxHealth = classConfig.maxHealth || CONFIG.PLAYER.maxHealth;
-        this.maxArmor = classConfig.maxArmor || CONFIG.PLAYER.maxArmor;
-        const gadgetConfig = CONFIG.GADGETS[classConfig.gadget];
-        if (gadgetConfig) {
-            this.gadgetMaxCooldown = gadgetConfig.cooldown;
-        }
+        this.applyClassConfig(classType, classConfig, { preserveVitals: true });
         this.gadgetCooldown = 0;
+    }
+
+    applyClassConfig(classType, classConfig, { preserveVitals = false } = {}) {
+        const runtimeConfig = { ...(classConfig || {}) };
+        this.classType = classType;
+        this.classConfig = runtimeConfig;
+
+        this.maxHealth = runtimeConfig.maxHealth || CONFIG.PLAYER.maxHealth;
+        this.maxArmor = runtimeConfig.maxArmor || CONFIG.PLAYER.maxArmor;
+
+        const configuredCaptureWeight = Number(runtimeConfig.captureWeight);
+        this.captureWeight = Number.isFinite(configuredCaptureWeight) && configuredCaptureWeight
+            ? configuredCaptureWeight
+            : 1;
+
+        const gadgetConfig = CONFIG.GADGETS[runtimeConfig.gadget];
+        this.gadgetMaxCooldown = Number.isFinite(gadgetConfig?.cooldown) ? gadgetConfig.cooldown : 0;
+        if (this.gadgetCooldown > this.gadgetMaxCooldown) {
+            this.gadgetCooldown = this.gadgetMaxCooldown;
+        }
+
+        if (preserveVitals) {
+            if (Number.isFinite(this.health)) this.health = Math.min(this.health, this.maxHealth);
+            if (Number.isFinite(this.armor)) this.armor = Math.min(this.armor, this.maxArmor);
+        } else {
+            this.health = this.maxHealth;
+            this.armor = this.maxArmor;
+        }
+
+        return this.classConfig;
     }
 
     updateClassPassive(dt) {
@@ -1965,6 +1988,9 @@ export class PlayerController {
             isHoldingBreath: this.isHoldingBreath,
             lean: this.currentLean,
             suppression: this.suppression,
+            captureWeight: this.captureWeight,
+            specializationId: this.classConfig?.specializationId ?? null,
+            specializationLevel: this.classConfig?.specializationLevel ?? 0,
             spawnProtection: this.spawnProtection > 0,
             // 开枪无限制：只要活着就能开枪。
             // 移除了冲刺冷却/冲刺中/翻越中的限制 —— 这些"莫名其妙开不了枪"的根因。

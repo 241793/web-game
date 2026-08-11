@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260801.2';
-import { CharacterModel } from '../player/CharacterModel.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260811.1';
+import { CharacterModel } from '../player/CharacterModel.js?v=20260811.2';
 
 // AI状态
 const AIState = {
     PATROL: 'patrol',
+    CAPTURE: 'capture',
     ENGAGE: 'engage',
     MOVE_TO_COVER: 'move_to_cover',
     RETREAT: 'retreat',
@@ -96,6 +97,13 @@ export class Bot {
         this.squadLeader = null;
         this.squadMembers = [];
 
+        // 主线程注入的动态战场目标/支援目标（只保存引用，不主动扫描）
+        this._battlefieldPriorityTarget = null;
+        this._supportSupplyTarget = null;
+        this._supportRallyTarget = null;
+        this._supportSupplyApproach = new THREE.Vector3();
+        this._smokeZones = [];
+
         // 医疗兵
         this.medicHealCooldown = 0;
 
@@ -179,6 +187,18 @@ export class Bot {
 
         // 随机巡逻目标
         this._pickPatrolTarget();
+    }
+
+    setBattlefieldPriority(target) {
+        this._battlefieldPriorityTarget = target || null;
+    }
+
+    setSupportTargets({ supply = null, rally = null, smokeZones = [] } = {}) {
+        this._supportSupplyTarget = supply || null;
+        this._supportRallyTarget = rally || null;
+        this._smokeZones = Array.isArray(smokeZones)
+            ? smokeZones
+            : (smokeZones ? [smokeZones] : []);
     }
 
     update(dt, allTargets, capturePoints, player) {
@@ -378,6 +398,16 @@ export class Bot {
         // 使用缓存搜索结果而非每帧搜索
         const enemy = cachedEnemy || null;
 
+        let seekingSupply = false;
+        if (!enemy && (this.state === AIState.PATROL || this.state === AIState.CAPTURE) &&
+            !this._getValidBattlefieldPriorityTarget()) {
+            const supplyPos = this._getSupportSupplyPosition();
+            seekingSupply = !!supplyPos && this._needsSupplySupport();
+            if (seekingSupply) {
+                this.patrolTarget = this._getSupportSupplyApproachPoint(supplyPos);
+            }
+        }
+
         if (enemy) {
             this.target = enemy;
             if (this.state !== AIState.ENGAGE) {
@@ -438,7 +468,7 @@ export class Bot {
         }
 
         // 检查是否需要占领据点
-        if (this.state === AIState.PATROL && this.stateTimer > 5) {
+        if (this.state === AIState.PATROL && this.stateTimer > 5 && !seekingSupply) {
             const advancePoint = this._getAdvanceApproachPoint(capturePoints);
             // 70%概率前往当前战术目标
             if (advancePoint && Math.random() < 0.7) {
@@ -447,8 +477,8 @@ export class Bot {
             this.stateTimer = 0;
         }
 
-        // 血量低时撤退
-        if (this.health < 30 && this.state !== AIState.RETREAT) {
+        // 血量低时撤退；非交战且已有己方补给时继续前往补给点
+        if (this.health < 30 && this.state !== AIState.RETREAT && !seekingSupply) {
             this.state = AIState.RETREAT;
             this.stateTimer = 0;
         }
@@ -512,7 +542,8 @@ export class Bot {
 
     _findNearestEnemy(allTargets, player) {
         let nearest = null;
-        let nearestDist = CONFIG.AI.sightRange;
+        const baseSightRange = CONFIG.AI.sightRange;
+        let nearestDist = baseSightRange;
         let nearestThreat = -1;
 
         // === 优化：先按距离排序，只对最近的几个做视线检测（大幅减少raycaster调用）===
@@ -544,8 +575,12 @@ export class Bot {
         const maxChecks = Math.min(candidates.length, 2);
         for (let i = 0; i < maxChecks; i++) {
             const c = candidates[i];
+            const sightRange = this._isLineObscuredBySmoke(c.target.position)
+                ? baseSightRange * 0.45
+                : baseSightRange;
+            if (c.dist > sightRange) continue;
             if (this._hasLineOfSight(c.target.position)) {
-                let threat = (c.isPlayer ? 2.0 : 1.5) - c.dist / CONFIG.AI.sightRange;
+                let threat = (c.isPlayer ? 2.0 : 1.5) - c.dist / sightRange;
                 if (c.downed) threat *= 0.75; // 倒地仍会追，但优先活着的威胁
                 if (threat > nearestThreat) {
                     nearest = c.target;
@@ -556,6 +591,42 @@ export class Bot {
         }
 
         return nearest;
+    }
+
+    _isLineObscuredBySmoke(targetPos) {
+        if (!targetPos || !this._smokeZones?.length) return false;
+
+        const startX = this.position.x;
+        const startZ = this.position.z;
+        const endX = Number(targetPos.x);
+        const endZ = Number(targetPos.z);
+        if (!Number.isFinite(endX) || !Number.isFinite(endZ)) return false;
+
+        const segX = endX - startX;
+        const segZ = endZ - startZ;
+        const segLenSq = segX * segX + segZ * segZ;
+
+        for (const zone of this._smokeZones) {
+            if (!zone || zone.alive === false) continue;
+            const center = zone.position || zone.center || zone;
+            const centerX = Number(center.x);
+            const centerZ = Number(center.z);
+            const radius = Number(zone.radius ?? center.radius);
+            if (!Number.isFinite(centerX) || !Number.isFinite(centerZ) || !Number.isFinite(radius) || radius <= 0) continue;
+
+            let t = 0;
+            if (segLenSq > 0.0001) {
+                t = ((centerX - startX) * segX + (centerZ - startZ) * segZ) / segLenSq;
+                t = THREE.MathUtils.clamp(t, 0, 1);
+            }
+            const closestX = startX + segX * t;
+            const closestZ = startZ + segZ * t;
+            const dx = centerX - closestX;
+            const dz = centerZ - closestZ;
+            if (dx * dx + dz * dz <= radius * radius) return true;
+        }
+
+        return false;
     }
 
     _hasLineOfSight(targetPos) {
@@ -604,6 +675,7 @@ export class Bot {
 
         switch (this.state) {
             case AIState.PATROL:
+            case AIState.CAPTURE:
                 if (!targetPos && this.patrolTarget) {
                     targetPos = this.patrolTarget;
                     if (this.position.distanceTo(targetPos) < 3) {
@@ -777,8 +849,10 @@ export class Bot {
         if (this.isReloading) return;
 
         const dist = this.position.distanceTo(this.target.position);
-        // 倒地目标：靠近补枪（缩短交战距离）
-        const fireRange = targetDowned ? Math.min(CONFIG.AI.fireRange, 18) : CONFIG.AI.fireRange;
+        const obscuredBySmoke = this._isLineObscuredBySmoke(this.target.position);
+        // 倒地目标：靠近补枪（缩短交战距离）；烟幕同时压低有效射程
+        let fireRange = targetDowned ? Math.min(CONFIG.AI.fireRange, 18) : CONFIG.AI.fireRange;
+        if (obscuredBySmoke) fireRange *= 0.45;
         if (dist > fireRange) return;
         if (!this._hasLineOfSight(this.target.position)) return;
 
@@ -794,8 +868,8 @@ export class Bot {
             return;
         }
 
-        // 射击间隔
-        const fireInterval = 60 / this.weaponConfig.fireRate;
+        // 射击间隔；穿烟时降低开火意愿，拉长点射间隔
+        const fireInterval = (60 / this.weaponConfig.fireRate) * (obscuredBySmoke ? 1.8 : 1);
         const now = performance.now() / 1000;
         if (now - this.lastFireTime < fireInterval) return;
 
@@ -849,8 +923,9 @@ export class Bot {
         let hitChance = CONFIG.AI.accuracy * (1 - dist / fireRange);
         // 倒地目标几乎躺着不动，补枪更容易
         if (targetDowned) hitChance *= 1.35;
-        // 压制降低准确度
+        // 压制和烟幕降低准确度
         hitChance *= (1 - this.suppressionLevel * 0.6);
+        if (obscuredBySmoke) hitChance *= 0.45;
         // 真人手感：爆发首发最准，连发越打越飘（模拟后坐力失控）
         hitChance *= Math.max(0.55, 1 - this.burstCount * 0.07);
         // 自己在移动时命中率大幅下降（真人跑打很难压枪）
@@ -1110,16 +1185,19 @@ export class Bot {
     }
 
     _getAdvanceApproachPoint(capturePoints) {
-        const objective = this._selectStrategicObjectiveTarget();
-        if (objective && this.world?.getStrategicObjectiveApproachPoint) {
-            const pos = this.world.getStrategicObjectiveApproachPoint(objective, this.team);
-            pos.x += (Math.random() - 0.5) * 4;
-            pos.z += (Math.random() - 0.5) * 4;
-            pos.y = 0;
-            return pos;
+        const priority = this._getValidBattlefieldPriorityTarget();
+        if (priority) {
+            return this._getPriorityApproachPoint(priority);
         }
 
-        const targetCps = capturePoints.filter(cp => cp.team !== this.team);
+        const objective = this._selectStrategicObjectiveTarget();
+        if (objective) {
+            return this._getPriorityApproachPoint(objective);
+        }
+
+        const targetCps = Array.isArray(capturePoints)
+            ? capturePoints.filter(cp => cp && !cp.locked && cp.team !== this.team)
+            : [];
         if (targetCps.length === 0) return null;
 
         let nearestCp = null;
@@ -1136,11 +1214,48 @@ export class Bot {
         return nearestCp ? this._getCaptureApproachPoint(nearestCp) : null;
     }
 
+    _getValidBattlefieldPriorityTarget() {
+        const target = this._battlefieldPriorityTarget;
+        if (!target) return null;
+        if (target.locked || target.alive === false || !this._getTargetPosition(target)) {
+            this._battlefieldPriorityTarget = null;
+            return null;
+        }
+        return target;
+    }
+
+    _getPriorityApproachPoint(target) {
+        const targetPos = this._getTargetPosition(target);
+        if (!targetPos) return null;
+
+        let pos = null;
+        if (target.position && target.maxHealth !== undefined && this.world?.getStrategicObjectiveApproachPoint) {
+            pos = this.world.getStrategicObjectiveApproachPoint(target, this.team);
+        } else if (!target.position && Number.isFinite(Number(target.x)) && Number.isFinite(Number(target.z))) {
+            pos = this._getCaptureApproachPoint(target);
+        } else if (this.world?.getDeployPositionNear) {
+            pos = this.world.getDeployPositionNear({
+                x: targetPos.x,
+                z: targetPos.z,
+                radius: target.radius || 8,
+            }, this.team);
+        }
+
+        if (!pos) {
+            pos = new THREE.Vector3(targetPos.x, targetPos.y || 0, targetPos.z);
+        }
+        pos.x += (Math.random() - 0.5) * 4;
+        pos.z += (Math.random() - 0.5) * 4;
+        pos.y = 0;
+        return pos;
+    }
+
     _selectStrategicObjectiveTarget() {
+        if (this.world?.strategicObjectivesEnabled === false) return null;
         if (!this.world?.getStrategicObjectives) return null;
 
-        const objectives = this.world.getStrategicObjectives()
-            .filter(obj => obj.alive && obj.team !== this.team);
+        const objectives = (this.world.getStrategicObjectives() || [])
+            .filter(obj => obj.alive && !obj.locked && obj.team !== this.team);
         if (objectives.length === 0) return null;
 
         let best = null;
@@ -1162,6 +1277,40 @@ export class Bot {
         }
 
         return bestScore > 20 ? best : null;
+    }
+
+    _getTargetPosition(target) {
+        if (!target) return null;
+        const pos = target.position || target;
+        const x = Number(pos.x);
+        const z = Number(pos.z);
+        if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+        return pos;
+    }
+
+    _getSupportSupplyPosition() {
+        const supply = this._supportSupplyTarget;
+        if (!supply) return null;
+        if (supply.alive === false || supply.locked || (supply.team !== undefined && supply.team !== this.team)) {
+            this._supportSupplyTarget = null;
+            return null;
+        }
+        return this._getTargetPosition(supply);
+    }
+
+    _needsSupplySupport() {
+        const reserveMax = Number(this.weaponConfig?.reserveAmmo);
+        const lowAmmo = Number.isFinite(reserveMax) && reserveMax > 0 && this.reserveAmmo < reserveMax * 0.3;
+        return this.health < 55 || lowAmmo;
+    }
+
+    _getSupportSupplyApproachPoint(supplyPos) {
+        this._supportSupplyApproach.set(
+            Number(supplyPos.x),
+            0,
+            Number(supplyPos.z)
+        );
+        return this._supportSupplyApproach;
     }
 
     // 寻找掩体位置
@@ -1598,8 +1747,14 @@ export class Bot {
                     this.target = {
                         position: nearestVehicle.position,
                         alive: true,
+                        isVehicleTarget: true,
+                        vehicle: nearestVehicle,
                         takeDamage: (dmg) => {
-                            nearestVehicle.takeDamage(dmg);
+                            // 工程兵反装甲：走命中区域与反装甲穿深
+                            nearestVehicle.takeDamage(dmg, nearestVehicle.position, this, {
+                                damageType: 'explosion',
+                                antiArmor: true,
+                            });
                             return nearestVehicle.health <= 0;
                         },
                         team: nearestVehicle.team,
@@ -1632,10 +1787,17 @@ export class Bot {
     _updateAssaultBehavior(dt, capturePoints) {
         // 突击兵更积极地向据点推进
         if (this.state === AIState.PATROL) {
-            const advancePoint = this._getAdvanceApproachPoint(capturePoints);
-            if (advancePoint && this.stateTimer > 3) {
-                this.patrolTarget = advancePoint;
-                this.stateTimer = 0;
+            const supplyPos = this._getSupportSupplyPosition();
+            const seekingSupply = !this._getValidBattlefieldPriorityTarget() &&
+                !!supplyPos && this._needsSupplySupport();
+            if (seekingSupply) {
+                this.patrolTarget = this._getSupportSupplyApproachPoint(supplyPos);
+            } else {
+                const advancePoint = this._getAdvanceApproachPoint(capturePoints);
+                if (advancePoint && this.stateTimer > 3) {
+                    this.patrolTarget = advancePoint;
+                    this.stateTimer = 0;
+                }
             }
         }
 

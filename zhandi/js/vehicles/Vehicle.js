@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260811.1';
 import { createProceduralMaterial, createSvgCanvasTexture } from '../utils/VisualAssets.js?v=20260801.2';
 
 const _vehicleSvgTextureCache = new Map();
@@ -58,6 +58,13 @@ export class Vehicle {
         this.scene = scene;
         this.world = world;
         this.audio = audio;
+        this.transientFx = scene.userData.transientFx;
+
+        // 高频视觉路径复用的临时向量；活动特效自身的速度仍由管理器 data 持有
+        this._fxTempPosition = new THREE.Vector3();
+        this._fxTempOffset = new THREE.Vector3();
+        this._fxTempLookTarget = new THREE.Vector3();
+        this._fxAxisY = new THREE.Vector3(0, 1, 0);
         this.originalType = type;   // 保存原始类型（如 sherman/tiger，用于配置查找）
         this.config = CONFIG.VEHICLES[type];
         // 如果配置指定了 modelType（如 sherman→tank），用 modelType 驱动模型和物理
@@ -131,6 +138,7 @@ export class Vehicle {
 
         // 损伤变形
         this._detachedParts = [];    // 已脱落的部件
+        this._hasDetachedPart = false;
         this._deformedMeshes = [];   // 已变形的网格
 
         // 碰撞反馈
@@ -148,25 +156,36 @@ export class Vehicle {
         this._crashAngularVelocity = new THREE.Vector3();
         this._crashSmokeTimer = 0;
 
-        this._activeTransientFx = 0;
         this._lastImpactFxTime = 0;
         this._lastMuzzleFxTime = 0;
         this._lastTracerFxTime = 0;
+        this._turretRecoilTimer = 0;
+        this._turretRecoilOffset = 0;
         this._vehicleTracerMaterials = {};
 
         // === 特效几何体缓存（避免每次射击创建新几何体导致GC卡顿）===
         // 所有特效通过 scale 调整大小，复用同一份 geometry
         this._fxGeo = {
             flash: new THREE.SphereGeometry(1, 6, 4),        // 火球/枪口闪光（单位球，通过scale缩放）
-            smoke: new THREE.SphereGeometry(1, 5, 3),        // 烟雾
+            smoke: new THREE.SphereGeometry(1, 5, 3),        // 烟雾/尘土
             spark: new THREE.BufferGeometry(),               // 火花（动态填充position）
+            plane: new THREE.PlaneGeometry(1, 1),             // 轮胎痕迹
+            circle: new THREE.CircleGeometry(1, 16),         // 弹坑
+            ring: new THREE.RingGeometry(1, 1.6, 16),        // 弹坑外圈
+            box: new THREE.BoxGeometry(1, 1, 1),             // 摧毁碎片
+            line: new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 0, 1),
+            ]),                                               // 载具曳光单位线段
         };
         // 火花基础位置缓冲（最大8个粒子×3，避免每次新建Float32Array）
         this._fxSparkPositions = new Float32Array(8 * 3);
         this._fxGeo.spark.setAttribute('position', new THREE.BufferAttribute(this._fxSparkPositions, 3));
 
-        // 碰撞火花粒子池（最多4个并发）
+        // 高频烟尘与轮迹复用池
         this._sparkPool = [];
+        this._smokeFxPool = [];
+        this._skidFxPool = [];
 
         // 摧毁涂黑产生的克隆材质（重生时统一释放，避免每局泄漏）
         this._blackenedMaterials = [];
@@ -196,15 +215,14 @@ export class Vehicle {
             repeatY: 2,
             anisotropy: 8,
         }, { roughness: 0.58, metalness: 0.62, bumpScale: 0.025 });
-        const matGlass = createProceduralMaterial('glass', {
-            baseColor: 0x223344,
-            accentColor: 0x5d8098,
-            detailColor: 0xd8f2ff,
-            size: 128,
-            repeatX: 1,
-            repeatY: 1,
-            anisotropy: 4,
-        }, { roughness: 0.08, metalness: 0.14, transparent: true, opacity: 0.48, depthWrite: false, useBump: false });
+        const matGlass = new THREE.MeshBasicMaterial({
+            color: 0x72d8df,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            toneMapped: false,
+        });
         const matTire = createProceduralMaterial('rubber', {
             baseColor: 0x111111,
             accentColor: 0x050505,
@@ -223,7 +241,7 @@ export class Vehicle {
                 this._buildJeep(group, matBody, matDark, matGlass, matTire);
                 break;
             case 'tank':
-                this._buildTank(group, matBody, matDark, matTire);
+                this._buildTank(group, matBody, matDark, matTire, matGlass);
                 break;
             case 'apc':
                 this._buildAPC(group, matBody, matDark, matGlass, matTire);
@@ -757,7 +775,7 @@ export class Vehicle {
         }
     }
 
-    _buildTank(group, matBody, matDark, matTire) {
+    _buildTank(group, matBody, matDark, matTire, matGlass) {
         // 履带 - 更精细
         const trackMat = createProceduralMaterial('rubber', {
             baseColor: 0x2a2a2a,
@@ -1048,10 +1066,11 @@ export class Vehicle {
         sight.position.set(0.3, 0.45, -0.3);
         turretGroup.add(sight);
         const sightLens = new THREE.Mesh(
-            new THREE.CircleGeometry(0.05, 8),
-            new THREE.MeshStandardMaterial({ color: 0x113311, metalness: 0.9, roughness: 0.1 })
+            new THREE.CircleGeometry(0.05, 12),
+            matGlass
         );
         sightLens.position.set(0.3, 0.45, -0.46);
+        sightLens.rotation.y = Math.PI;
         turretGroup.add(sightLens);
 
         // 天线
@@ -1849,6 +1868,13 @@ export class Vehicle {
         if (this.secondaryCooldown > 0) {
             this.secondaryCooldown -= dt;
         }
+        if (this._turretRecoilTimer > 0) {
+            this._turretRecoilTimer -= dt;
+            if (this._turretRecoilTimer <= 0 && this._turretRecoilOffset !== 0) {
+                if (this.turret) this.turret.position.z -= this._turretRecoilOffset;
+                this._turretRecoilOffset = 0;
+            }
+        }
 
         // 弹药自动恢复（战地风格：停火后缓慢补弹）
         this._ammoRegenTimer += dt;
@@ -1882,8 +1908,10 @@ export class Vehicle {
             // 接近目标时额外阻尼，避免过冲抖动
             if (Math.abs(yawDiff) < 0.05) this._turretYawVel *= 0.85;
             if (Math.abs(pitchDiff) < 0.04) this._turretPitchVel *= 0.85;
-            this.turretYaw += this._turretYawVel * dt;
-            this.turretPitch += this._turretPitchVel * dt;
+            // 炮塔模块损坏时转速下降
+            const turretFactor = this.getModuleFactor('turret');
+            this.turretYaw += this._turretYawVel * dt * turretFactor;
+            this.turretPitch += this._turretPitchVel * dt * turretFactor;
             this.turretPitch = THREE.MathUtils.clamp(this.turretPitch, -0.5, 0.7);
         }
 
@@ -2634,25 +2662,32 @@ export class Vehicle {
         }
     }
 
-    // 碰撞火花（粒子池复用，避免每次碰撞新建几何体/材质）
+    // 碰撞火花（粒子池复用；生命周期统一交给瞬态特效管理器）
     _spawnCollisionSparks() {
-        // 找一个空闲火花，没有且池未满则新建；池满直接跳过本次
-        let spark = this._sparkPool.find(s => !s.active);
+        if (!this.transientFx) return;
+        let spark = this._sparkPool.find(item => !item.active);
         if (!spark) {
             if (this._sparkPool.length >= 4) return;
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(8 * 3), 3));
-            spark = { geo, active: false, velX: new Float32Array(8), velY: new Float32Array(8), velZ: new Float32Array(8), points: null, mat: null };
+            spark = {
+                geo,
+                active: false,
+                velX: new Float32Array(8),
+                velY: new Float32Array(8),
+                velZ: new Float32Array(8),
+                points: null,
+                mat: null,
+            };
             this._sparkPool.push(spark);
         }
-        spark.active = true;
 
-        const pos = this.position;
+        spark.active = true;
         const positions = spark.geo.attributes.position.array;
         for (let i = 0; i < 8; i++) {
-            positions[i * 3] = pos.x;
-            positions[i * 3 + 1] = pos.y + 1;
-            positions[i * 3 + 2] = pos.z;
+            positions[i * 3] = this.position.x;
+            positions[i * 3 + 1] = this.position.y + 1;
+            positions[i * 3 + 2] = this.position.z;
             spark.velX[i] = (Math.random() - 0.5) * 6;
             spark.velY[i] = Math.random() * 4 + 1;
             spark.velZ[i] = (Math.random() - 0.5) * 6;
@@ -2663,36 +2698,108 @@ export class Vehicle {
             spark.mat = new THREE.PointsMaterial({ color: 0xffaa00, size: 0.15, transparent: true });
             spark.points = new THREE.Points(spark.geo, spark.mat);
         }
-        this.scene.add(spark.points);
+        spark.mat.opacity = 1;
 
-        let life = 0.4;
-        const prev = performance.now();
-        const animate = () => {
-            const now = performance.now();
-            const dt = Math.min((now - prev) / 1000, 0.05);
-            if (now !== prev) life -= dt;
-            if (life <= 0) {
-                this.scene.remove(spark.points);
+        const effect = this.transientFx.add({
+            owner: this,
+            category: 'impact',
+            priority: 3,
+            life: 0.4,
+            object: spark.points,
+            update: (fx, dt, progress) => {
+                for (let i = 0; i < 8; i++) {
+                    spark.velY[i] -= 15 * dt;
+                    positions[i * 3] += spark.velX[i] * dt;
+                    positions[i * 3 + 1] += spark.velY[i] * dt;
+                    positions[i * 3 + 2] += spark.velZ[i] * dt;
+                }
+                spark.geo.attributes.position.needsUpdate = true;
+                spark.mat.opacity = 1 - progress;
+            },
+            release: () => { spark.active = false; },
+            onReject: () => {
                 spark.active = false;
-                return;
-            }
-            for (let i = 0; i < 8; i++) {
-                spark.velY[i] -= 15 * dt;
-                positions[i * 3] += spark.velX[i] * dt;
-                positions[i * 3 + 1] += spark.velY[i] * dt;
-                positions[i * 3 + 2] += spark.velZ[i] * dt;
-            }
-            spark.geo.attributes.position.needsUpdate = true;
-            spark.mat.opacity = life / 0.4;
-            requestAnimationFrame(animate);
-        };
-        animate();
+                if (spark.points?.parent) spark.points.parent.remove(spark.points);
+            },
+        });
+        if (!effect) spark.active = false;
+    }
+
+    _acquireSmokeFx(color, opacity) {
+        let entry = this._smokeFxPool.find(item => !item.active);
+        if (!entry) {
+            if (this._smokeFxPool.length >= 64) return null;
+            const material = new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity,
+                depthWrite: false,
+            });
+            entry = {
+                mesh: new THREE.Mesh(this._fxGeo.smoke, material),
+                material,
+                velocity: new THREE.Vector3(),
+                active: false,
+            };
+            this._smokeFxPool.push(entry);
+        }
+        entry.active = true;
+        entry.material.color.setHex(color);
+        entry.material.opacity = opacity;
+        return entry;
+    }
+
+    _releaseSmokeFx(entry) {
+        if (!entry) return;
+        entry.active = false;
+        entry.mesh.scale.setScalar(1);
+    }
+
+    _spawnPooledSmoke(position, options) {
+        const entry = this._acquireSmokeFx(options.color, options.opacity);
+        if (!entry) return;
+        const { mesh, material, velocity } = entry;
+        velocity.set(options.velocityX, options.velocityY, options.velocityZ);
+        mesh.position.copy(position);
+        mesh.scale.setScalar(options.scale);
+        this.transientFx.add({
+            owner: this,
+            category: options.category,
+            priority: options.priority,
+            life: options.life,
+            object: mesh,
+            data: { velocity },
+            update: (effect, dt, progress) => {
+                mesh.position.addScaledVector(velocity, dt);
+                mesh.scale.setScalar(options.scale * (1 + progress * options.expansion));
+                material.opacity = (1 - progress) * options.opacity;
+            },
+            release: () => this._releaseSmokeFx(entry),
+            onReject: () => this._releaseSmokeFx(entry),
+        });
+    }
+
+    _acquireSkidFx() {
+        let entry = this._skidFxPool.find(item => !item.active);
+        if (!entry) {
+            if (this._skidFxPool.length >= this._maxSkidMarks) return null;
+            const material = new THREE.MeshBasicMaterial({
+                color: 0x1a1a1a,
+                transparent: true,
+                opacity: 0.5,
+                depthWrite: false,
+            });
+            entry = { mesh: new THREE.Mesh(this._fxGeo.plane, material), material, active: false };
+            this._skidFxPool.push(entry);
+        }
+        entry.active = true;
+        entry.material.opacity = 0.5;
+        return entry;
     }
 
     // 轮胎打滑痕迹
     _spawnSkidMarks() {
-        if (!this.wheels || this.wheels.length === 0) return;
-        // 后轮位置（APC 按 side 外层、i 内层排列：0/5 = 左/右最尾端轮）
+        if (!this.transientFx || !this.wheels || this.wheels.length === 0) return;
         const rearWheels = this.type === 'jeep'
             ? [this.wheels[2], this.wheels[3]]
             : this.type === 'apc'
@@ -2700,46 +2807,43 @@ export class Vehicle {
             : [this.wheels[2], this.wheels[3]];
 
         for (const wheel of rearWheels) {
-            const worldPos = new THREE.Vector3();
-            wheel.getWorldPosition(worldPos);
-            worldPos.y = this.world.getHeight(worldPos.x, worldPos.z) + 0.02;
+            wheel.getWorldPosition(this._fxTempPosition);
+            this._fxTempPosition.y = this.world.getHeight(this._fxTempPosition.x, this._fxTempPosition.z) + 0.02;
 
-            const mark = new THREE.Mesh(
-                new THREE.PlaneGeometry(0.25, 0.5),
-                new THREE.MeshBasicMaterial({ color: 0x1a1a1a, transparent: true, opacity: 0.5 })
-            );
-            mark.rotation.x = -Math.PI / 2;
-            mark.rotation.z = -this.yaw;
-            mark.position.copy(worldPos);
-            this.scene.add(mark);
-            this._skidMarks.push(mark);
+            const entry = this._acquireSkidFx();
+            if (!entry) continue;
+            const { mesh: mark, material } = entry;
+            mark.scale.set(0.25, 0.5, 1);
+            mark.rotation.set(-Math.PI / 2, 0, -this.yaw);
+            mark.position.copy(this._fxTempPosition);
 
-            // 限制数量
+            const effect = this.transientFx.add({
+                owner: this,
+                category: 'mark',
+                priority: 0,
+                life: 5.85,
+                object: mark,
+                data: { mark, terminate: false },
+                update: (fx) => {
+                    if (fx.data.terminate) return false;
+                    const fade = THREE.MathUtils.clamp((fx.elapsed - 5) / 0.85, 0, 1);
+                    material.opacity = (1 - fade) * 0.5;
+                },
+                release: () => {
+                    const index = this._skidMarks.indexOf(effect);
+                    if (index >= 0) this._skidMarks.splice(index, 1);
+                    entry.active = false;
+                },
+                onReject: () => { entry.active = false; },
+            });
+            if (!effect) continue;
+            this._skidMarks.push(effect);
+
+            // 正常情况下由 mark 分类预算控制；保留本载具旧上限时仅提前结束最老一项。
             if (this._skidMarks.length > this._maxSkidMarks) {
-                const old = this._skidMarks.shift();
-                this.scene.remove(old);
-                old.geometry.dispose();
-                old.material.dispose();
+                const oldest = this._skidMarks[0];
+                if (oldest && !oldest.done) oldest.data.terminate = true;
             }
-
-            // 5秒后淡出
-            setTimeout(() => {
-                let opacity = 0.5;
-                const fade = () => {
-                    opacity -= 0.01;
-                    if (opacity <= 0) {
-                        this.scene.remove(mark);
-                        mark.geometry.dispose();
-                        mark.material.dispose();
-                        const idx = this._skidMarks.indexOf(mark);
-                        if (idx >= 0) this._skidMarks.splice(idx, 1);
-                        return;
-                    }
-                    mark.material.opacity = opacity;
-                    requestAnimationFrame(fade);
-                };
-                fade();
-            }, 5000);
         }
     }
 
@@ -2760,10 +2864,12 @@ export class Vehicle {
         // 修复后移除
         if (healthPct >= 0.7 && this._damageSmoke) {
             this.model.remove(this._damageSmoke);
+            this._disposePersistentFxGroup(this._damageSmoke);
             this._damageSmoke = null;
         }
         if (healthPct >= 0.4 && this._damageFire) {
             this.model.remove(this._damageFire);
+            this._disposePersistentFxGroup(this._damageFire);
             if (this._damageLight) {
                 this.model.remove(this._damageLight);
                 this._damageLight = null;
@@ -2772,14 +2878,16 @@ export class Vehicle {
         }
 
         // 损伤变形 - 严重受损时部件脱落
-        if (healthPct < 0.2 && this._detachableParts && this._detachedParts.length === 0) {
+        if (healthPct < 0.2 && this._detachableParts && !this._hasDetachedPart) {
             this._detachRandomPart();
         }
 
         // 损伤降速：血量越低引擎出力越差（玩家能感觉到"车坏了"）
-        this._damageSpeedMult = healthPct > 0.6 ? 1
+        // 叠加发动机/履带模块损坏因子
+        const moduleMove = Math.min(this.getModuleFactor('engine'), this.getModuleFactor('tracks'));
+        this._damageSpeedMult = (healthPct > 0.6 ? 1
             : healthPct > 0.3 ? 0.75 + healthPct * 0.25
-            : 0.45 + healthPct * 0.5;
+            : 0.45 + healthPct * 0.5) * moduleMove;
 
         // 更新冒烟/着火动画
         if (this._damageSmoke) {
@@ -2853,7 +2961,7 @@ export class Vehicle {
 
     // 部件脱落
     _detachRandomPart() {
-        if (!this._detachableParts || this._detachableParts.length === 0) return;
+        if (!this.transientFx || !this._detachableParts || this._detachableParts.length === 0) return;
         const partName = this._detachableParts[Math.floor(Math.random() * this._detachableParts.length)];
         // 找到对应部件
         let partMesh = null;
@@ -2864,62 +2972,79 @@ export class Vehicle {
         });
         if (!partMesh) return;
 
-        // 获取世界位置
+        // 获取世界位置，并保留本地变换以便管理器拒绝时无损放回模型。
+        const originalParent = partMesh.parent;
+        const localPosition = partMesh.position.clone();
+        const localQuaternion = partMesh.quaternion.clone();
         const worldPos = new THREE.Vector3();
         partMesh.getWorldPosition(worldPos);
         const worldQuat = new THREE.Quaternion();
         partMesh.getWorldQuaternion(worldQuat);
 
         // 从模型中移除
-        if (partMesh.parent) {
-            partMesh.parent.remove(partMesh);
+        if (originalParent) {
+            originalParent.remove(partMesh);
         }
 
-        // 添加到场景作为独立物体
+        // 添加为独立瞬态物体；部件资源属于载具模型，结束时由特效释放。
+        this._hasDetachedPart = true;
         partMesh.position.copy(worldPos);
         partMesh.quaternion.copy(worldQuat);
-        this.scene.add(partMesh);
         this._detachedParts.push(partMesh);
 
-        // 物理掉落动画
-        const vel = new THREE.Vector3(
+        const velocity = new THREE.Vector3(
             (Math.random() - 0.5) * 5,
             Math.random() * 3 + 2,
             (Math.random() - 0.5) * 5
         );
-        const angVel = new THREE.Vector3(
+        const angularVelocity = new THREE.Vector3(
             Math.random() * 3,
             Math.random() * 3,
             Math.random() * 3
         );
-        let life = 4;
-        const animate = (prev) => {
-            const now = performance.now();
-            const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-            life -= dt;
-            if (life <= 0) {
-                this.scene.remove(partMesh);
-                if (partMesh.geometry) partMesh.geometry.dispose();
-                if (partMesh.material) partMesh.material.dispose();
-                return;
-            }
-            vel.y -= 20 * dt;
-            partMesh.position.add(vel.clone().multiplyScalar(dt));
-            partMesh.rotation.x += angVel.x * dt;
-            partMesh.rotation.y += angVel.y * dt;
-            partMesh.rotation.z += angVel.z * dt;
+        this.transientFx.add({
+            owner: this,
+            category: 'debris',
+            priority: 2,
+            life: 4,
+            object: partMesh,
+            data: { velocity, angularVelocity },
+            update: (effect, dt) => {
+                velocity.y -= 20 * dt;
+                partMesh.position.addScaledVector(velocity, dt);
+                partMesh.rotation.x += angularVelocity.x * dt;
+                partMesh.rotation.y += angularVelocity.y * dt;
+                partMesh.rotation.z += angularVelocity.z * dt;
 
-            // 地面检测
-            const groundY = this.world.getHeight(partMesh.position.x, partMesh.position.z);
-            if (partMesh.position.y < groundY + 0.2) {
-                partMesh.position.y = groundY + 0.2;
-                vel.y = -vel.y * 0.3;
-                vel.x *= 0.5;
-                vel.z *= 0.5;
-            }
-            requestAnimationFrame(() => animate(now));
-        };
-        animate();
+                const groundY = this.world.getHeight(partMesh.position.x, partMesh.position.z);
+                if (partMesh.position.y < groundY + 0.2) {
+                    partMesh.position.y = groundY + 0.2;
+                    velocity.y = -velocity.y * 0.3;
+                    velocity.x *= 0.5;
+                    velocity.z *= 0.5;
+                }
+            },
+            release: () => {
+                const index = this._detachedParts.indexOf(partMesh);
+                if (index >= 0) this._detachedParts.splice(index, 1);
+                partMesh.geometry?.dispose();
+                if (Array.isArray(partMesh.material)) {
+                    partMesh.material.forEach(material => {
+                        if (!material?.userData?.sharedProcedural) material?.dispose?.();
+                    });
+                } else if (!partMesh.material?.userData?.sharedProcedural) {
+                    partMesh.material?.dispose?.();
+                }
+            },
+            onReject: () => {
+                const index = this._detachedParts.indexOf(partMesh);
+                if (index >= 0) this._detachedParts.splice(index, 1);
+                this._hasDetachedPart = false;
+                partMesh.position.copy(localPosition);
+                partMesh.quaternion.copy(localQuaternion);
+                originalParent?.add(partMesh);
+            },
+        });
 
         // 火花特效
         this._spawnCollisionSparks();
@@ -2927,43 +3052,32 @@ export class Vehicle {
 
     // 漂移烟雾
     _spawnDriftSmoke() {
-        const rearOffset = this.type === 'jeep' ? -1.3 : this.type === 'apc' ? -2.0 : -2.0;
+        if (!this.transientFx) return;
+        const rearOffset = this.type === 'jeep' ? -1.3 : -2.0;
         for (let side = -1; side <= 1; side += 2) {
-            const offset = new THREE.Vector3(side * 0.9, 0, rearOffset);
-            offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
-            const pos = this.position.clone().add(offset);
-            pos.y = this.world.getHeight(pos.x, pos.z) + 0.1;
+            this._fxTempOffset.set(side * 0.9, 0, rearOffset).applyAxisAngle(this._fxAxisY, this.yaw);
+            this._fxTempPosition.copy(this.position).add(this._fxTempOffset);
+            this._fxTempPosition.y = this.world.getHeight(this._fxTempPosition.x, this._fxTempPosition.z) + 0.1;
 
-            const smoke = new THREE.Mesh(
-                new THREE.SphereGeometry(0.4, 6, 4),
-                new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.35 })
-            );
-            smoke.position.copy(pos);
-            this.scene.add(smoke);
-
-            const vel = new THREE.Vector3(
-                (Math.random() - 0.5) * 1.5,
-                0.5 + Math.random() * 0.5,
-                (Math.random() - 0.5) * 1.5
-            );
-            let life = 1.0;
-            const animate = (prev) => {
-                const now = performance.now();
-                const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-                life -= dt;
-                if (life <= 0) {
-                    this.scene.remove(smoke);
-                    smoke.geometry.dispose();
-                    smoke.material.dispose();
-                    return;
-                }
-                smoke.position.add(vel.clone().multiplyScalar(dt));
-                smoke.scale.setScalar(1 + (1.0 - life) * 2);
-                smoke.material.opacity = (life / 1.0) * 0.35;
-                requestAnimationFrame(() => animate(now));
-            };
-            animate();
+            this._spawnPooledSmoke(this._fxTempPosition, {
+                color: 0xcccccc,
+                opacity: 0.35,
+                scale: 0.4,
+                life: 1,
+                expansion: 2,
+                category: 'smoke',
+                priority: 1,
+                velocityX: (Math.random() - 0.5) * 1.5,
+                velocityY: 0.5 + Math.random() * 0.5,
+                velocityZ: (Math.random() - 0.5) * 1.5,
+            });
         }
+    }
+
+    _disposePersistentFxGroup(group) {
+        group?.traverse(child => {
+            if (child.isMesh && child.material) child.material.dispose();
+        });
     }
 
     // 创建损伤冒烟
@@ -2974,7 +3088,7 @@ export class Vehicle {
         ];
         for (const [x, y, z] of positions) {
             const p = new THREE.Mesh(
-                new THREE.SphereGeometry(0.3, 6, 4),
+                this._fxGeo.smoke,
                 new THREE.MeshBasicMaterial({ color: 0x333333, transparent: true, opacity: 0.4 })
             );
             p.position.set(x, y, z);
@@ -2988,10 +3102,11 @@ export class Vehicle {
     _createDamageFire() {
         const group = new THREE.Group();
         const fire = new THREE.Mesh(
-            new THREE.SphereGeometry(0.4, 8, 6),
+            this._fxGeo.flash,
             new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.8 })
         );
         fire.position.set(0, 1.5, 0);
+        fire.scale.setScalar(0.4);
         group.add(fire);
 
         // 不再挂点光源：着火光效由灯光池的周期闪烁提供，避免灯光增删触发着色器重编译
@@ -3002,45 +3117,30 @@ export class Vehicle {
 
     // 尾气烟雾
     _spawnExhaust() {
-        const offset = new THREE.Vector3(0, 0.8, 2.5);
-        if (this.type === 'tank') offset.set(0.8, 0.5, 2.5);
-        if (this.type === 'apc') offset.set(0, 0.6, 3.0);
-        offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
-        const pos = this.position.clone().add(offset);
+        if (!this.transientFx) return;
+        this._fxTempOffset.set(0, 0.8, 2.5);
+        if (this.type === 'tank') this._fxTempOffset.set(0.8, 0.5, 2.5);
+        if (this.type === 'apc') this._fxTempOffset.set(0, 0.6, 3.0);
+        this._fxTempOffset.applyAxisAngle(this._fxAxisY, this.yaw);
+        this._fxTempPosition.copy(this.position).add(this._fxTempOffset);
 
-        const smoke = new THREE.Mesh(
-            new THREE.SphereGeometry(0.15, 4, 3),
-            new THREE.MeshBasicMaterial({ color: 0x555555, transparent: true, opacity: 0.3 })
-        );
-        smoke.position.copy(pos);
-        this.scene.add(smoke);
-
-        const vel = new THREE.Vector3(
-            (Math.random() - 0.5) * 0.5,
-            0.5 + Math.random() * 0.3,
-            (Math.random() - 0.5) * 0.5
-        );
-        let life = 1.5;
-        const animate = (prev) => {
-            const now = performance.now();
-            const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-            life -= dt;
-            if (life <= 0) {
-                this.scene.remove(smoke);
-                smoke.geometry.dispose();
-                smoke.material.dispose();
-                return;
-            }
-            smoke.position.add(vel.clone().multiplyScalar(dt));
-            smoke.scale.setScalar(1 + (1.5 - life) * 0.5);
-            smoke.material.opacity = (life / 1.5) * 0.3;
-            requestAnimationFrame(() => animate(now));
-        };
-        animate();
+        this._spawnPooledSmoke(this._fxTempPosition, {
+            color: 0x555555,
+            opacity: 0.3,
+            scale: 0.15,
+            life: 1.5,
+            expansion: 0.75,
+            category: 'smoke',
+            priority: 0,
+            velocityX: (Math.random() - 0.5) * 0.5,
+            velocityY: 0.5 + Math.random() * 0.3,
+            velocityZ: (Math.random() - 0.5) * 0.5,
+        });
     }
 
     // 尘土轨迹
     _spawnDustTrail() {
+        if (!this.transientFx) return;
         const wheelOffsets = this.type === 'jeep'
             ? [[-0.9, -1.3], [0.9, -1.3]]
             : this.type === 'apc'
@@ -3048,82 +3148,46 @@ export class Vehicle {
             : [[-1.3, -2.0], [1.3, -2.0]];
 
         for (const [lx, lz] of wheelOffsets) {
-            const offset = new THREE.Vector3(lx, 0, lz);
-            offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
-            const pos = this.position.clone().add(offset);
-            pos.y = this.world.getHeight(pos.x, pos.z) + 0.1;
+            this._fxTempOffset.set(lx, 0, lz).applyAxisAngle(this._fxAxisY, this.yaw);
+            this._fxTempPosition.copy(this.position).add(this._fxTempOffset);
+            this._fxTempPosition.y = this.world.getHeight(this._fxTempPosition.x, this._fxTempPosition.z) + 0.1;
 
-            const dust = new THREE.Mesh(
-                new THREE.SphereGeometry(0.3, 5, 4),
-                new THREE.MeshBasicMaterial({ color: 0x8a7a5a, transparent: true, opacity: 0.4 })
-            );
-            dust.position.copy(pos);
-            this.scene.add(dust);
-
-            const vel = new THREE.Vector3(
-                (Math.random() - 0.5) * 1,
-                0.3 + Math.random() * 0.5,
-                (Math.random() - 0.5) * 1
-            );
-            let life = 0.8;
-            const animate = (prev) => {
-                const now = performance.now();
-                const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-                life -= dt;
-                if (life <= 0) {
-                    this.scene.remove(dust);
-                    dust.geometry.dispose();
-                    dust.material.dispose();
-                    return;
-                }
-                dust.position.add(vel.clone().multiplyScalar(dt));
-                dust.scale.setScalar(1 + (0.8 - life) * 1.5);
-                dust.material.opacity = (life / 0.8) * 0.4;
-                requestAnimationFrame(() => animate(now));
-            };
-            animate();
+            this._spawnPooledSmoke(this._fxTempPosition, {
+                color: 0x8a7a5a,
+                opacity: 0.4,
+                scale: 0.3,
+                life: 0.8,
+                expansion: 1.2,
+                category: 'dust',
+                priority: 1,
+                velocityX: Math.random() - 0.5,
+                velocityY: 0.3 + Math.random() * 0.5,
+                velocityZ: Math.random() - 0.5,
+            });
         }
     }
 
     // 直升机旋翼气流
     _spawnRotorWash(altitude) {
+        if (!this.transientFx) return;
         const spread = 2 + altitude * 0.2;
-        const pos = this.position.clone();
-        pos.x += (Math.random() - 0.5) * spread * 2;
-        pos.z += (Math.random() - 0.5) * spread * 2;
-        pos.y = this.world.getHeight(pos.x, pos.z) + 0.1;
+        this._fxTempPosition.copy(this.position);
+        this._fxTempPosition.x += (Math.random() - 0.5) * spread * 2;
+        this._fxTempPosition.z += (Math.random() - 0.5) * spread * 2;
+        this._fxTempPosition.y = this.world.getHeight(this._fxTempPosition.x, this._fxTempPosition.z) + 0.1;
 
-        const dust = new THREE.Mesh(
-            new THREE.SphereGeometry(0.4, 5, 4),
-            new THREE.MeshBasicMaterial({ color: 0x9a8a6a, transparent: true, opacity: 0.3 })
-        );
-        dust.position.copy(pos);
-        this.scene.add(dust);
-
-        const vel = new THREE.Vector3(
-            (Math.random() - 0.5) * 3,
-            -0.5,
-            (Math.random() - 0.5) * 3
-        );
-        // 修复：lifetime 未定义导致 ReferenceError 和尘埃粒子永不清理（内存泄漏+性能下降）
-        const lifetime = 0.6;
-        let life = lifetime;
-        const animate = (prev) => {
-            const now = performance.now();
-            const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-            life -= dt;
-            if (life <= 0) {
-                this.scene.remove(dust);
-                dust.geometry.dispose();
-                dust.material.dispose();
-                return;
-            }
-            dust.position.add(vel.clone().multiplyScalar(dt));
-            dust.scale.setScalar(1 + (0.6 - life) * 2);
-            dust.material.opacity = (life / 0.6) * 0.3;
-            requestAnimationFrame(() => animate(now));
-        };
-        animate();
+        this._spawnPooledSmoke(this._fxTempPosition, {
+            color: 0x9a8a6a,
+            opacity: 0.3,
+            scale: 0.4,
+            life: 0.6,
+            expansion: 1.2,
+            category: 'dust',
+            priority: 1,
+            velocityX: (Math.random() - 0.5) * 3,
+            velocityY: -0.5,
+            velocityZ: (Math.random() - 0.5) * 3,
+        });
     }
 
     _fireCannon() {
@@ -3169,16 +3233,16 @@ export class Vehicle {
                     const groundY = this.world.getHeight(rayOrigin.x + direction.x * 100, rayOrigin.z + direction.z * 100);
                     const distToGround = (groundY - rayOrigin.y) / direction.y;
                     if (distToGround > 0 && distToGround < this.config.cannonRange) {
-                        hitPoint = rayOrigin.clone().add(direction.clone().multiplyScalar(distToGround));
+                        hitPoint = new THREE.Vector3().copy(rayOrigin).addScaledVector(direction, distToGround);
                     }
                 }
             }
         }
         if (!hitPoint) {
-            hitPoint = rayOrigin.clone().add(direction.clone().multiplyScalar(this.config.cannonRange));
+            hitPoint = new THREE.Vector3().copy(rayOrigin).addScaledVector(direction, this.config.cannonRange);
         }
         if (hitPoint.distanceTo(rayOrigin) > this.config.cannonRange) {
-            hitPoint.copy(rayOrigin).add(direction.clone().multiplyScalar(this.config.cannonRange));
+            hitPoint.copy(rayOrigin).addScaledVector(direction, this.config.cannonRange);
         }
 
         // 发射回调
@@ -3208,12 +3272,14 @@ export class Vehicle {
         // 炮口爆炸效果
         this._createMuzzleFlash(muzzlePos);
 
-        // 炮塔后坐力
+        // 炮塔后坐力：由载具 update 的 dt 计时复位，避免独立定时器。
         if (this.turret) {
-            this.turret.position.z += 0.1;
-            setTimeout(() => {
-                if (this.turret) this.turret.position.z -= 0.1;
-            }, 80);
+            if (this._turretRecoilOffset !== 0) {
+                this.turret.position.z -= this._turretRecoilOffset;
+            }
+            this._turretRecoilOffset = 0.1;
+            this._turretRecoilTimer = 0.08;
+            this.turret.position.z += this._turretRecoilOffset;
         }
     }
 
@@ -3241,7 +3307,7 @@ export class Vehicle {
         const validHit = intersects.find(h => h.distance > (useLocalAim ? 0.5 : 5));
         const hitPoint = validHit
             ? validHit.point.clone()
-            : rayOrigin.clone().add(direction.clone().multiplyScalar(range));
+            : new THREE.Vector3().copy(rayOrigin).addScaledVector(direction, range);
 
         if (this.onFireCannon) {
             this.onFireCannon(rayOrigin, direction, this.config.secondaryDamage, range, {
@@ -3253,16 +3319,6 @@ export class Vehicle {
         this._createVehicleTracer(muzzlePos, hitPoint, 0xfff2a0, 0.55, 42, 35);
 
         this._createMuzzleFlash(muzzlePos);
-    }
-
-    _canSpawnTransientFx(cost = 1, limit = 9) {
-        if (this._activeTransientFx + cost > limit) return false;
-        this._activeTransientFx += cost;
-        return true;
-    }
-
-    _releaseTransientFx(cost = 1) {
-        this._activeTransientFx = Math.max(0, this._activeTransientFx - cost);
     }
 
     _getVehicleTracerMaterial(color, opacity) {
@@ -3281,74 +3337,108 @@ export class Vehicle {
 
     _createVehicleTracer(start, end, color, opacity = 0.65, duration = 50, minInterval = 0) {
         const now = performance.now();
-        if (minInterval > 0 && now - this._lastTracerFxTime < minInterval) return;
-        if (!this._canSpawnTransientFx(1, 10)) return;
+        if (!this.transientFx || (minInterval > 0 && now - this._lastTracerFxTime < minInterval)) return;
         this._lastTracerFxTime = now;
 
-        const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
-        const line = new THREE.Line(geo, this._getVehicleTracerMaterial(color, opacity));
-        this.scene.add(line);
-        setTimeout(() => {
-            this.scene.remove(line);
-            geo.dispose();
-            this._releaseTransientFx(1);
-        }, duration);
+        const line = new THREE.Line(this._fxGeo.line, this._getVehicleTracerMaterial(color, opacity));
+        line.position.copy(start);
+        line.scale.z = start.distanceTo(end);
+        line.lookAt(end);
+        this.transientFx.add({
+            owner: this,
+            category: 'projectile',
+            priority: 2,
+            life: duration / 1000,
+            object: line,
+        });
     }
 
-    // 坦克炮弹弹道：高速平直射击（真实坦克炮初速极高，视觉上几乎直线）
-    // 仅超远距离(>150m)有轻微弹道下坠
+    // 坦克炮弹弹道：固定 10 点尾迹缓冲，运动由瞬态特效管理器推进。
     _createTankShell(start, end) {
+        if (!this.transientFx) return;
         const distance = start.distanceTo(end);
-        // 150m 内完全平直，之后每 100m 下坠约 1.2m（战地风格的微量下坠）
         const arcHeight = distance > 150 ? Math.min((distance - 150) * 0.012, 2.5) : 0;
-        const mid = start.clone().lerp(end, 0.5);
-        mid.y += arcHeight;
+        const startX = start.x;
+        const startY = start.y;
+        const startZ = start.z;
+        const endX = end.x;
+        const endY = end.y;
+        const endZ = end.z;
+        const midX = (startX + endX) * 0.5;
+        const midY = (startY + endY) * 0.5 + arcHeight;
+        const midZ = (startZ + endZ) * 0.5;
+        const invDistance = distance > 0 ? 1 / distance : 0;
+        const directionX = (endX - startX) * invDistance;
+        const directionY = (endY - startY) * invDistance;
+        const directionZ = (endZ - startZ) * invDistance;
 
-        // 炮弹可视化（拉长的曳光弹头）
-        const shell = new THREE.Mesh(
-            new THREE.SphereGeometry(0.18, 6, 4),
-            new THREE.MeshBasicMaterial({ color: 0xffcc55 })
-        );
-        shell.scale.set(1, 1, 2.6);
-        this.scene.add(shell);
+        const shellMaterial = new THREE.MeshBasicMaterial({ color: 0xffcc55 });
+        const shell = new THREE.Mesh(this._fxGeo.flash, shellMaterial);
+        shell.scale.set(0.18, 0.18, 0.468);
+        shell.position.set(startX, startY, startZ);
 
-        // 弹道线
-        const trailGeo = new THREE.BufferGeometry();
-        const trailPoints = [];
-        const trailMat = new THREE.LineBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.6 });
-        const trail = new THREE.Line(trailGeo, trailMat);
-        this.scene.add(trail);
-
-        // 炮弹速度约 300m/s：飞行时间 = 距离/300，t 增量随真实时间推进
+        const trailPositions = new Float32Array(10 * 3);
+        for (let i = 0; i < 10; i++) {
+            trailPositions[i * 3] = startX;
+            trailPositions[i * 3 + 1] = startY;
+            trailPositions[i * 3 + 2] = startZ;
+        }
+        const trailGeometry = new THREE.BufferGeometry();
+        trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+        trailGeometry.setDrawRange(0, 1);
+        const trailMaterial = new THREE.LineBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.6 });
+        const trail = new THREE.Line(trailGeometry, trailMaterial);
+        trail.frustumCulled = false;
         const flightTime = Math.max(0.08, distance / 300);
-        const dir = end.clone().sub(start).normalize();
-        let t = 0;
-        const animate = (prev) => {
-            const now = performance.now();
-            t += Math.min((now - (prev || now)) / 1000, 0.05) / flightTime;
-            if (t >= 1) {
-                this.scene.remove(shell);
-                this.scene.remove(trail);
-                shell.geometry.dispose();
-                shell.material.dispose();
-                trailGeo.dispose();
-                trailMat.dispose();
-                return;
-            }
-            // 二次贝塞尔（arcHeight=0 时即纯直线）
-            const p = new THREE.Vector3();
-            p.x = (1 - t) * (1 - t) * start.x + 2 * (1 - t) * t * mid.x + t * t * end.x;
-            p.y = (1 - t) * (1 - t) * start.y + 2 * (1 - t) * t * mid.y + t * t * end.y;
-            p.z = (1 - t) * (1 - t) * start.z + 2 * (1 - t) * t * mid.z + t * t * end.z;
-            shell.position.copy(p);
-            shell.lookAt(p.clone().add(dir));
+        const data = { sampleCount: 0 };
 
-            trailPoints.push(p.clone());
-            if (trailPoints.length > 10) trailPoints.shift();
-            trailGeo.setFromPoints(trailPoints);
-            requestAnimationFrame(() => animate(now));
-        };
-        animate();
+        this.transientFx.add({
+            owner: this,
+            category: 'projectile',
+            priority: 4,
+            cost: 2,
+            life: flightTime,
+            objects: [shell, trail],
+            data,
+            update: (effect, dt, progress) => {
+                const inv = 1 - progress;
+                shell.position.set(
+                    inv * inv * startX + 2 * inv * progress * midX + progress * progress * endX,
+                    inv * inv * startY + 2 * inv * progress * midY + progress * progress * endY,
+                    inv * inv * startZ + 2 * inv * progress * midZ + progress * progress * endZ
+                );
+                this._fxTempLookTarget.set(
+                    shell.position.x + directionX,
+                    shell.position.y + directionY,
+                    shell.position.z + directionZ
+                );
+                shell.lookAt(this._fxTempLookTarget);
+
+                if (data.sampleCount < 10) data.sampleCount++;
+                for (let i = data.sampleCount - 1; i > 0; i--) {
+                    const target = i * 3;
+                    const source = (i - 1) * 3;
+                    trailPositions[target] = trailPositions[source];
+                    trailPositions[target + 1] = trailPositions[source + 1];
+                    trailPositions[target + 2] = trailPositions[source + 2];
+                }
+                trailPositions[0] = shell.position.x;
+                trailPositions[1] = shell.position.y;
+                trailPositions[2] = shell.position.z;
+                trailGeometry.attributes.position.needsUpdate = true;
+                trailGeometry.setDrawRange(0, data.sampleCount);
+            },
+            release: () => {
+                shellMaterial.dispose();
+                trailGeometry.dispose();
+                trailMaterial.dispose();
+            },
+            onReject: () => {
+                shellMaterial.dispose();
+                trailGeometry.dispose();
+                trailMaterial.dispose();
+            },
+        });
     }
 
     // 创建命中爆炸特效
@@ -3358,7 +3448,7 @@ export class Vehicle {
         const minInterval = isHeavyImpact ? 80 : 140;
         if (now - this._lastImpactFxTime < minInterval) return;
         const fxCost = isHeavyImpact ? 3 : 2;
-        if (!this._canSpawnTransientFx(fxCost, isHeavyImpact ? 5 : 3)) return;
+        if (!this.transientFx) return;
         this._lastImpactFxTime = now;
 
         const visualScale = Math.min(scale, scale >= 5 ? 3.4 : (isHeavyImpact ? 2.6 : 1.2));
@@ -3370,7 +3460,6 @@ export class Vehicle {
         );
         flash.scale.setScalar(visualScale * 0.42);
         flash.position.copy(position);
-        this.scene.add(flash);
 
         // 光源 - 从灯光池借用（不新建灯光，避免着色器重编译）
         if (isHeavyImpact) {
@@ -3386,114 +3475,110 @@ export class Vehicle {
         smoke.scale.setScalar(visualScale * 0.55);
         smoke.position.copy(position);
         smoke.position.y += visualScale * 0.25;
-        this.scene.add(smoke);
 
         // 火花碎屑（减少到2-3个小球Mesh，共享几何体和材质，避免BufferGeometry动态更新开销）
         const sparkCount = isHeavyImpact ? 3 : 2;
         const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, depthWrite: false });
         const sparks = [];
-        const sparkVelocities = [];
+        const sparkVelocities = new Float32Array(sparkCount * 3);
         for (let i = 0; i < sparkCount; i++) {
             const spark = new THREE.Mesh(this._fxGeo.flash, sparkMat);
             spark.scale.setScalar(0.1);
             spark.position.copy(position);
-            this.scene.add(spark);
             sparks.push(spark);
-            sparkVelocities.push(new THREE.Vector3(
-                (Math.random() - 0.5) * visualScale * 2.2,
-                Math.random() * visualScale * 1.4,
-                (Math.random() - 0.5) * visualScale * 2.2
-            ));
+            sparkVelocities[i * 3] = (Math.random() - 0.5) * visualScale * 2.2;
+            sparkVelocities[i * 3 + 1] = Math.random() * visualScale * 1.4;
+            sparkVelocities[i * 3 + 2] = (Math.random() - 0.5) * visualScale * 2.2;
         }
 
         const flashBase = visualScale * 0.42;
         const smokeBase = visualScale * 0.55;
-        let life = lifetime;
-        let lastTime = performance.now();
-        const animate = () => {
-            const now = performance.now();
-            const dt = (now - lastTime) / 1000;
-            lastTime = now;
-            life -= dt;
-            if (life <= 0) {
-                this.scene.remove(flash);
-                this.scene.remove(smoke);
-                for (const s of sparks) this.scene.remove(s);
-                // 只dispose材质，不dispose共享几何体（_fxGeo 在载具销毁时统一释放）
+        const objects = [flash, smoke, ...sparks];
+        this.transientFx.add({
+            owner: this,
+            category: 'impact',
+            priority: isHeavyImpact ? 4 : 3,
+            cost: fxCost,
+            life: lifetime,
+            objects,
+            data: { sparkVelocities },
+            update: (effect, dt, progress) => {
+                flash.scale.setScalar(flashBase * (1 + progress * visualScale));
+                flash.material.opacity = (1 - progress) * 0.9;
+                smoke.scale.setScalar(smokeBase * (1 + progress * 1.45));
+                smoke.position.y += dt * 1.4;
+                smoke.material.opacity = (1 - progress) * (isHeavyImpact ? 0.4 : 0.22);
+                for (let i = 0; i < sparks.length; i++) {
+                    const velocityIndex = i * 3;
+                    sparkVelocities[velocityIndex + 1] -= 20 * dt;
+                    sparks[i].position.x += sparkVelocities[velocityIndex] * dt;
+                    sparks[i].position.y += sparkVelocities[velocityIndex + 1] * dt;
+                    sparks[i].position.z += sparkVelocities[velocityIndex + 2] * dt;
+                }
+                sparkMat.opacity = 1 - progress;
+            },
+            release: () => {
                 flash.material.dispose();
                 smoke.material.dispose();
                 sparkMat.dispose();
-                this._releaseTransientFx(fxCost);
-                return;
-            }
-            const t = 1 - life / lifetime;
-            flash.scale.setScalar(flashBase * (1 + t * visualScale));
-            flash.material.opacity = (1 - t) * 0.9;
-            smoke.scale.setScalar(smokeBase * (1 + t * 1.45));
-            smoke.position.y += dt * 1.4;
-            smoke.material.opacity = (1 - t) * (isHeavyImpact ? 0.4 : 0.22);
-            for (let i = 0; i < sparks.length; i++) {
-                sparkVelocities[i].y -= 20 * dt;
-                sparks[i].position.x += sparkVelocities[i].x * dt;
-                sparks[i].position.y += sparkVelocities[i].y * dt;
-                sparks[i].position.z += sparkVelocities[i].z * dt;
-            }
-            sparkMat.opacity = 1 - t;
-            requestAnimationFrame(animate);
-        };
-        animate();
+            },
+            onReject: () => {
+                flash.material.dispose();
+                smoke.material.dispose();
+                sparkMat.dispose();
+            },
+        });
     }
 
     // 创建弹坑痕迹
     _createCrater(position) {
+        if (!this.transientFx) return;
         const groundY = this.world.getHeight(position.x, position.z);
-        const craterY = Math.max(position.y, groundY) + 0.02;
+        const craterY = groundY + 0.02;
 
-        const craterGeo = new THREE.CircleGeometry(2.5, 16);
         const craterMat = new THREE.MeshStandardMaterial({
             color: 0x1a1008,
             roughness: 1.0,
             transparent: true,
             opacity: 0.9,
         });
-        const crater = new THREE.Mesh(craterGeo, craterMat);
+        const crater = new THREE.Mesh(this._fxGeo.circle, craterMat);
+        crater.scale.setScalar(2.5);
         crater.rotation.x = -Math.PI / 2;
         crater.position.set(position.x, craterY, position.z);
-        this.scene.add(crater);
 
-        const ringGeo = new THREE.RingGeometry(2.5, 4, 16);
         const ringMat = new THREE.MeshBasicMaterial({
             color: 0x331100,
             transparent: true,
             opacity: 0.5,
             side: THREE.DoubleSide,
         });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
+        const ring = new THREE.Mesh(this._fxGeo.ring, ringMat);
+        ring.scale.setScalar(2.5);
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(position.x, craterY + 0.01, position.z);
-        this.scene.add(ring);
 
-        setTimeout(() => {
-            let opacity = 0.9;
-            const fadeAnim = (prev) => {
-                const now = performance.now();
-                const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-                opacity -= dt * 1.6; // 约0.56秒淡出
-                if (opacity <= 0) {
-                    this.scene.remove(crater);
-                    this.scene.remove(ring);
-                    craterGeo.dispose();
-                    craterMat.dispose();
-                    ringGeo.dispose();
-                    ringMat.dispose();
-                    return;
-                }
-                craterMat.opacity = opacity;
-                ringMat.opacity = opacity * 0.5;
-                requestAnimationFrame(() => fadeAnim(now));
-            };
-            fadeAnim();
-        }, 15000);
+        this.transientFx.add({
+            owner: this,
+            category: 'mark',
+            priority: 1,
+            cost: 2,
+            life: 15.6,
+            objects: [crater, ring],
+            update: (effect) => {
+                const fade = THREE.MathUtils.clamp((effect.elapsed - 15) / 0.6, 0, 1);
+                craterMat.opacity = (1 - fade) * 0.9;
+                ringMat.opacity = (1 - fade) * 0.5;
+            },
+            release: () => {
+                craterMat.dispose();
+                ringMat.dispose();
+            },
+            onReject: () => {
+                craterMat.dispose();
+                ringMat.dispose();
+            },
+        });
     }
 
     // 炮口闪光
@@ -3501,8 +3586,7 @@ export class Vehicle {
         const now = performance.now();
         const isHeavyMuzzle = this.type === 'tank';
         const minInterval = isHeavyMuzzle ? 60 : 95;
-        if (now - this._lastMuzzleFxTime < minInterval) return;
-        if (!this._canSpawnTransientFx(1, 6)) return;
+        if (now - this._lastMuzzleFxTime < minInterval || !this.transientFx) return;
         this._lastMuzzleFxTime = now;
 
         const lifetime = isHeavyMuzzle ? 0.14 : 0.07;
@@ -3514,7 +3598,6 @@ export class Vehicle {
         );
         flash.scale.setScalar(flashRadius);
         flash.position.copy(position);
-        this.scene.add(flash);
 
         if (isHeavyMuzzle) {
             const pool = this.scene.userData.lightPool;
@@ -3529,34 +3612,32 @@ export class Vehicle {
         if (smoke) {
             smoke.scale.setScalar(0.32);
             smoke.position.copy(position);
-            this.scene.add(smoke);
         }
 
-        let life = lifetime;
-        const animate = (prev) => {
-            const now = performance.now();
-            const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-            life -= dt;
-            if (life <= 0) {
-                this.scene.remove(flash);
-                if (smoke) this.scene.remove(smoke);
-                // 只dispose材质，不dispose共享几何体
+        this.transientFx.add({
+            owner: this,
+            category: 'impact',
+            priority: isHeavyMuzzle ? 4 : 2,
+            life: lifetime,
+            objects: smoke ? [flash, smoke] : [flash],
+            update: (effect, dt, progress) => {
+                flash.scale.setScalar(flashRadius * (1 + progress * (isHeavyMuzzle ? 2.0 : 1.2)));
+                flash.material.opacity = (1 - progress) * 0.9;
+                if (smoke) {
+                    smoke.scale.setScalar(0.32 * (1 + progress * 1.2));
+                    smoke.material.opacity = (1 - progress) * 0.28;
+                    smoke.position.y += 0.9 * dt;
+                }
+            },
+            release: () => {
                 flash.material.dispose();
                 if (smoke) smoke.material.dispose();
-                this._releaseTransientFx(1);
-                return;
-            }
-            const t = 1 - life / lifetime;
-            flash.scale.setScalar(flashRadius * (1 + t * (isHeavyMuzzle ? 2.0 : 1.2)));
-            flash.material.opacity = (1 - t) * 0.9;
-            if (smoke) {
-                smoke.scale.setScalar(0.32 * (1 + t * 1.2));
-                smoke.material.opacity = (1 - t) * 0.28;
-                smoke.position.y += 0.9 * dt;
-            }
-            requestAnimationFrame(() => animate(now));
-        };
-        animate();
+            },
+            onReject: () => {
+                flash.material.dispose();
+                if (smoke) smoke.material.dispose();
+            },
+        });
     }
 
     _getCannonMuzzle() {
@@ -3740,13 +3821,23 @@ export class Vehicle {
     }
 
     // 受伤（带装甲减伤）
-    takeDamage(amount, hitPoint = null, attacker = null) {
+    takeDamage(amount, hitPoint = null, attacker = null, options = null) {
         if (!this.alive) return false;
+
+        const damageType = options?.damageType || 'generic';
+        // 近战/枪弹对重装甲几乎无效（只有反装甲/爆炸/载具炮火有效）
+        if (damageType === 'melee') return false;
+        if (damageType === 'bullet') {
+            const bulletResist = this.config.bulletResist ?? (this.config.armor?.front < 0.3 ? 0.05 : 0.15);
+            amount *= bulletResist;
+        }
 
         // === 装甲减伤 ===
         let effectiveDamage = amount;
+        let hitZone = 'side';
         if (hitPoint) {
-            const armorMult = this._getArmorMultiplier(hitPoint);
+            hitZone = this._getArmorZone(hitPoint);
+            const armorMult = this._getArmorMultiplierForZone(hitZone);
             effectiveDamage = amount * armorMult;
         } else {
             // 无命中点（如爆炸）→ 用侧面装甲平均值
@@ -3754,11 +3845,18 @@ export class Vehicle {
             effectiveDamage = amount * ((armor.side + armor.rear) / 2);
         }
 
+        // 反装甲武器穿深加成
+        if (options?.antiArmor) effectiveDamage *= (options.antiArmorMult || 1.6);
+
         this.health -= effectiveDamage;
         // 受击火花
         this._spawnCollisionSparks();
         // 受击震颤（车身抖动）
         this._hitShake = Math.min(1, (this._hitShake || 0) + Math.min(0.6, effectiveDamage / 80));
+
+        // === 模块损坏：低血量时按命中区域概率致损 ===
+        this._applyModuleDamage(hitZone, effectiveDamage);
+
         if (this.health <= 0) {
             this.health = 0;
             this.alive = false;
@@ -3773,31 +3871,50 @@ export class Vehicle {
         return false;
     }
 
-    // 根据命中点方位计算装甲减伤倍率（前/侧/后/顶）
-    _getArmorMultiplier(hitPoint) {
-        const armor = this.config.armor;
-        if (!armor) return 1.0;
+    // 模块损坏：履带（减速）、发动机（限速）、炮塔（转向变慢）
+    _applyModuleDamage(hitZone, damage) {
+        if (!this._modules) {
+            this._modules = { tracks: 1, engine: 1, turret: 1 };
+        }
+        const healthPct = this.health / this.config.maxHealth;
+        if (healthPct > 0.6) return; // 高血量不进模块损坏
 
-        // 命中方向相对载具朝向
+        const roll = Math.random();
+        const severity = Math.min(0.35, damage / 200);
+        if (hitZone === 'rear' && roll < 0.4) {
+            this._modules.engine = Math.max(0.4, this._modules.engine - severity);
+        } else if ((hitZone === 'side') && roll < 0.35) {
+            this._modules.tracks = Math.max(0.45, this._modules.tracks - severity);
+        } else if (hitZone === 'top' && roll < 0.3) {
+            this._modules.turret = Math.max(0.5, this._modules.turret - severity);
+        }
+    }
+
+    getModuleFactor(name) {
+        return this._modules?.[name] ?? 1;
+    }
+
+    // 判断命中区域（前/侧/后/顶）
+    _getArmorZone(hitPoint) {
         const toHit = new THREE.Vector3().subVectors(hitPoint, this.position);
         const verticalDist = toHit.y;
         toHit.y = 0;
-
-        // 顶部命中（命中点几乎在载具正上方/高仰角）
         const horizDist = Math.sqrt(toHit.x * toHit.x + toHit.z * toHit.z);
         if (horizDist < 0.2 || (verticalDist > 1.5 && verticalDist > horizDist * 0.6)) {
-            return armor.top;
+            return 'top';
         }
-
         toHit.normalize();
-        // 载具前方向量（与 yaw 对应）
         const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
         const dot = toHit.dot(forward);
+        if (dot > 0.4) return 'front';
+        if (dot < -0.4) return 'rear';
+        return 'side';
+    }
 
-        // 前/后/侧
-        if (dot > 0.4) return armor.front;
-        if (dot < -0.4) return armor.rear;
-        return armor.side;
+    _getArmorMultiplierForZone(zone) {
+        const armor = this.config.armor;
+        if (!armor) return 1.0;
+        return armor[zone] ?? armor.side ?? 1.0;
     }
 
     _beginCrash() {
@@ -3885,31 +4002,27 @@ export class Vehicle {
     }
 
     _spawnCrashSmoke() {
-        const smoke = new THREE.Mesh(
-            new THREE.SphereGeometry(0.9, 8, 6),
-            new THREE.MeshBasicMaterial({ color: 0x181818, transparent: true, opacity: 0.45 })
-        );
+        if (!this.transientFx) return;
+        const material = new THREE.MeshBasicMaterial({ color: 0x181818, transparent: true, opacity: 0.45 });
+        const smoke = new THREE.Mesh(this._fxGeo.smoke, material);
         smoke.position.copy(this.position);
         smoke.position.y += 0.8;
-        this.scene.add(smoke);
+        smoke.scale.setScalar(0.9);
 
-        let life = 1.1;
-        const animateSmoke = (prev) => {
-            const now = performance.now();
-            const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-            life -= dt;
-            if (life <= 0) {
-                this.scene.remove(smoke);
-                smoke.geometry.dispose();
-                smoke.material.dispose();
-                return;
-            }
-            smoke.position.y += 1.6 * dt;
-            smoke.scale.setScalar(1 + (1.1 - life) * 1.8);
-            smoke.material.opacity = (life / 1.1) * 0.45;
-            requestAnimationFrame(() => animateSmoke(now));
-        };
-        animateSmoke();
+        this.transientFx.add({
+            owner: this,
+            category: 'smoke',
+            priority: 3,
+            life: 1.1,
+            object: smoke,
+            update: (effect, dt, progress) => {
+                smoke.position.y += 1.6 * dt;
+                smoke.scale.setScalar(0.9 * (1 + progress * 1.8));
+                material.opacity = (1 - progress) * 0.45;
+            },
+            release: () => material.dispose(),
+            onReject: () => material.dispose(),
+        });
     }
 
     _destroy() {
@@ -3929,86 +4042,106 @@ export class Vehicle {
         this._createImpactExplosion(center, 6);
         if (this.audio) this.audio.playExplosion(this.position);
 
-        // 延迟二次爆炸
-        setTimeout(() => {
-            if (this.audio) this.audio.playExplosion(this.position);
-            this._createImpactExplosion(center.clone().add(new THREE.Vector3(0, 0.5, 0)), 4);
-        }, 300);
-        setTimeout(() => {
-            this._createImpactExplosion(center.clone().add(new THREE.Vector3(
-                (Math.random() - 0.5) * 2, 0.3, (Math.random() - 0.5) * 2
-            )), 3);
-        }, 600);
-
-        // 飞溅碎片
-        for (let i = 0; i < 12; i++) {
-            const debris = new THREE.Mesh(
-                new THREE.BoxGeometry(0.2, 0.2, 0.2),
-                new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.8 })
-            );
-            debris.position.copy(center);
-            this.scene.add(debris);
-
-            const vel = new THREE.Vector3(
-                (Math.random() - 0.5) * 15,
-                Math.random() * 10 + 5,
-                (Math.random() - 0.5) * 15
-            );
-            let dLife = 2;
-            const animateDebris = (prev) => {
-                const now = performance.now();
-                const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-                dLife -= dt;
-                if (dLife <= 0) {
-                    this.scene.remove(debris);
-                    debris.geometry.dispose();
-                    debris.material.dispose();
-                    return;
-                }
-                vel.y -= 25 * dt;
-                debris.position.add(vel.clone().multiplyScalar(dt));
-                debris.rotation.x += 6 * dt;
-                debris.rotation.y += 5 * dt;
-                requestAnimationFrame(() => animateDebris(now));
-            };
-            animateDebris();
+        // 延迟二次爆炸：无承载物的管理器回调，统一服从 owner 取消与预算。
+        if (this.transientFx) {
+            this.transientFx.add({
+                owner: this,
+                category: 'critical',
+                priority: 4,
+                delay: 0.3,
+                life: 0.001,
+                onActivate: () => {
+                    if (this.audio) this.audio.playExplosion(this.position);
+                    this._fxTempPosition.copy(center);
+                    this._fxTempPosition.y += 0.5;
+                    this._createImpactExplosion(this._fxTempPosition, 4);
+                },
+            });
+            this.transientFx.add({
+                owner: this,
+                category: 'impact',
+                priority: 3,
+                delay: 0.6,
+                life: 0.001,
+                onActivate: () => {
+                    this._fxTempPosition.copy(center);
+                    this._fxTempPosition.x += (Math.random() - 0.5) * 2;
+                    this._fxTempPosition.y += 0.3;
+                    this._fxTempPosition.z += (Math.random() - 0.5) * 2;
+                    this._createImpactExplosion(this._fxTempPosition, 3);
+                },
+            });
         }
 
-        // 持久烟雾柱
-        for (let i = 0; i < 5; i++) {
-            setTimeout(() => {
-                const smoke = new THREE.Mesh(
-                    new THREE.SphereGeometry(1.5, 8, 6),
-                    new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.5 })
+        // 飞溅碎片
+        if (this.transientFx) {
+            for (let i = 0; i < 12; i++) {
+                const material = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.8 });
+                const debris = new THREE.Mesh(this._fxGeo.box, material);
+                debris.scale.setScalar(0.2);
+                debris.position.copy(center);
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 15,
+                    Math.random() * 10 + 5,
+                    (Math.random() - 0.5) * 15
                 );
+
+                this.transientFx.add({
+                    owner: this,
+                    category: 'debris',
+                    priority: 2,
+                    life: 2,
+                    object: debris,
+                    data: { velocity },
+                    update: (effect, dt) => {
+                        velocity.y -= 25 * dt;
+                        debris.position.addScaledVector(velocity, dt);
+                        debris.rotation.x += 6 * dt;
+                        debris.rotation.y += 5 * dt;
+                    },
+                    release: () => material.dispose(),
+                    onReject: () => material.dispose(),
+                });
+            }
+
+            // 持久烟雾柱
+            for (let i = 0; i < 5; i++) {
+                const material = new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.5 });
+                const smoke = new THREE.Mesh(this._fxGeo.smoke, material);
+                smoke.scale.setScalar(1.5);
                 smoke.position.copy(center);
                 smoke.position.x += (Math.random() - 0.5) * 2;
                 smoke.position.z += (Math.random() - 0.5) * 2;
-                this.scene.add(smoke);
 
-                let sLife = 5;
-                const animateSmoke = (prev) => {
-                    const now = performance.now();
-                    const dt = Math.min((now - (prev || now)) / 1000, 0.05);
-                    sLife -= dt;
-                    if (sLife <= 0) {
-                        this.scene.remove(smoke);
-                        smoke.geometry.dispose();
-                        smoke.material.dispose();
-                        return;
-                    }
-                    smoke.position.y += 1.2 * dt;
-                    smoke.scale.setScalar(1 + (5 - sLife) * 0.3);
-                    smoke.material.opacity = (sLife / 5) * 0.5;
-                    requestAnimationFrame(() => animateSmoke(now));
-                };
-                animateSmoke();
-            }, i * 200);
+                this.transientFx.add({
+                    owner: this,
+                    category: 'smoke',
+                    priority: 2,
+                    delay: i * 0.2,
+                    life: 5,
+                    object: smoke,
+                    update: (effect, dt, progress) => {
+                        smoke.position.y += 1.2 * dt;
+                        smoke.scale.setScalar(1.5 * (1 + progress * 1.5));
+                        material.opacity = (1 - progress) * 0.5;
+                    },
+                    release: () => material.dispose(),
+                    onReject: () => material.dispose(),
+                });
+            }
         }
 
         // 移除损伤特效
-        if (this._damageSmoke) { this.model.remove(this._damageSmoke); this._damageSmoke = null; }
-        if (this._damageFire) { this.model.remove(this._damageFire); this._damageFire = null; }
+        if (this._damageSmoke) {
+            this.model.remove(this._damageSmoke);
+            this._disposePersistentFxGroup(this._damageSmoke);
+            this._damageSmoke = null;
+        }
+        if (this._damageFire) {
+            this.model.remove(this._damageFire);
+            this._disposePersistentFxGroup(this._damageFire);
+            this._damageFire = null;
+        }
         if (this._damageLight) { this._damageLight = null; }
 
         // 踢出所有乘员
@@ -4032,22 +4165,47 @@ export class Vehicle {
 
         this._stopEngineSound();
 
-        // 变黑 + 倾倒（克隆材质去掉共享标记并记录，重生时随旧模型一起释放，避免泄漏）
+        const blackenedBySource = new Map();
+        const replacedLocalMaterials = new Set();
+        const detachedMaterials = new Set();
+        for (const part of this._detachedParts) {
+            part.traverse(child => {
+                if (Array.isArray(child.material)) child.material.forEach(material => detachedMaterials.add(material));
+                else if (child.material) detachedMaterials.add(child.material);
+            });
+        }
+        const blacken = (source) => {
+            if (!source) return source;
+            if (blackenedBySource.has(source)) return blackenedBySource.get(source);
+            const material = source.clone();
+            delete material.userData.sharedProcedural;
+            material.color?.setHex(0x1a1a1a);
+            blackenedBySource.set(source, material);
+            this._blackenedMaterials.push(material);
+            if (!source.userData?.sharedProcedural && !detachedMaterials.has(source)) replacedLocalMaterials.add(source);
+            return material;
+        };
         this.model.traverse(child => {
-            if (child.isMesh) {
-                const mat = child.material.clone();
-                delete mat.userData.sharedProcedural;
-                mat.color.setHex(0x1a1a1a);
-                child.material = mat;
-                this._blackenedMaterials.push(mat);
-            }
+            if (!child.isMesh) return;
+            child.material = Array.isArray(child.material)
+                ? child.material.map(blacken)
+                : blacken(child.material);
         });
+        for (const material of replacedLocalMaterials) material.dispose();
         this.model.rotation.z = 0.3; // 倾倒效果
     }
 
     // 修复
     repair(amount) {
+        if (!this.alive) return;
         this.health = Math.min(this.health + amount, this.config.maxHealth);
+        // 维修同时缓慢恢复模块
+        if (this._modules) {
+            const recover = amount / this.config.maxHealth * 0.5;
+            this._modules.tracks = Math.min(1, this._modules.tracks + recover);
+            this._modules.engine = Math.min(1, this._modules.engine + recover);
+            this._modules.turret = Math.min(1, this._modules.turret + recover);
+        }
     }
 
     // 获取状态
@@ -4083,24 +4241,50 @@ export class Vehicle {
     }
 
     dispose() {
+        this.transientFx?.cancelOwner(this);
         this._stopEngineSound();
-        // 清理轮胎痕迹
-        for (const mark of this._skidMarks) {
-            this.scene.remove(mark);
-            if (mark.geometry) mark.geometry.dispose();
-            if (mark.material) mark.material.dispose();
-        }
         this._skidMarks = [];
+        if (this._damageSmoke) {
+            this.model?.remove(this._damageSmoke);
+            this._disposePersistentFxGroup(this._damageSmoke);
+            this._damageSmoke = null;
+        }
+        if (this._damageFire) {
+            this.model?.remove(this._damageFire);
+            this._disposePersistentFxGroup(this._damageFire);
+            this._damageFire = null;
+        }
+        for (const spark of this._sparkPool) {
+            spark.geo?.dispose();
+            spark.mat?.dispose();
+            spark.active = false;
+        }
+        this._sparkPool = [];
+        for (const entry of this._smokeFxPool) entry.material?.dispose?.();
+        this._smokeFxPool = [];
+        for (const entry of this._skidFxPool) entry.material?.dispose?.();
+        this._skidFxPool = [];
         for (const mat of Object.values(this._vehicleTracerMaterials || {})) {
             if (mat) mat.dispose();
         }
         this._vehicleTracerMaterials = {};
-        // 黑化克隆材质与共享特效几何体
-        for (const mat of this._blackenedMaterials) mat.dispose();
-        this._blackenedMaterials = [];
-        for (const geo of [this._fxGeo?.flash, this._fxGeo?.smoke, this._fxGeo?.spark]) {
-            if (geo) geo.dispose();
+        // 模型资源由载具统一释放，避免调用方与此处重复 dispose。
+        if (this.model) {
+            this.model.traverse(child => {
+                child.geometry?.dispose?.();
+                if (Array.isArray(child.material)) {
+                    child.material.forEach(material => {
+                        if (!material?.userData?.sharedProcedural) material?.dispose?.();
+                    });
+                } else if (!child.material?.userData?.sharedProcedural) {
+                    child.material?.dispose?.();
+                }
+            });
+            this.scene.remove(this.model);
+            this.model = null;
         }
-        if (this.model) this.scene.remove(this.model);
+        this._blackenedMaterials = [];
+        for (const geo of Object.values(this._fxGeo || {})) geo?.dispose?.();
+        this._fxGeo = {};
     }
 }
