@@ -1,8 +1,8 @@
 # 战地前线 - Battlefield Front
 
 一个基于 three.js 的网页版战地类第一人称射击游戏。
-战地：241793.github.io/web-game/zhandi
-伪泰拉瑞亚：241793.github.io/web-game/tlry
+ 战地：241793.github.io/web-game/zhandi
+ 伪泰拉瑞亚：241793.github.io/web-game/tlry
 
 
 ## 运行方式
