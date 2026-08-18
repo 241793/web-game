@@ -11,6 +11,14 @@ export class RushMode extends GameMode {
         this.armed = false;
         this.fuseTimer = 0;
         this.fuseDuration = modeConfig.fuseDuration || 40;
+        this.armDuration = modeConfig.armDuration || 3.0;
+        this.defuseDuration = modeConfig.defuseDuration || 5.0;
+        this.armProgress = 0;       // 攻方安放进度 0..1
+        this.defuseProgress = 0;   // 守方拆除进度 0..1
+        this.armInteractor = null; // 当前正在安放的玩家
+        this.defuseInteractor = null;
+        // 配置覆盖：抢攻模式不通过据点占领自动爆破
+        this.capturePointTimeOverride = 9999;
     }
 
     onMatchStart() {
@@ -18,6 +26,10 @@ export class RushMode extends GameMode {
         this.currentMcom = 0;
         this.armed = false;
         this.fuseTimer = 0;
+        this.armProgress = 0;
+        this.defuseProgress = 0;
+        this.armInteractor = null;
+        this.defuseInteractor = null;
         this._setupMcoms();
         if (this.game.hud) {
             const isAtk = this.attackerTeam === 0;
@@ -48,6 +60,10 @@ export class RushMode extends GameMode {
         this.currentMcom++;
         this.armed = false;
         this.fuseTimer = 0;
+        this.armProgress = 0;
+        this.defuseProgress = 0;
+        this.armInteractor = null;
+        this.defuseInteractor = null;
         if (this.currentMcom >= this.totalMcoms) {
             this.winner = this.attackerTeam === 0 ? 'friendly' : 'enemy';
             if (this.game.hud) {
@@ -74,6 +90,81 @@ export class RushMode extends GameMode {
         if (team === this.attackerTeam) {
             super.onPlayerDeath(dead, killer);
         }
+        // 死亡时打断该玩家正在进行的安放/拆除
+        if (dead === this.armInteractor) this.armInteractor = null;
+        if (dead === this.defuseInteractor) this.defuseInteractor = null;
+    }
+
+    // 玩家被击中时打断安放/拆除（由 Game 在伤害玩家后调用）
+    onPlayerDamaged(player) {
+        if (!player) return;
+        if (player === this.armInteractor) {
+            this.armInteractor = null;
+            this.game.hud?.showNotification?.('安放被打断！', 1.5);
+        }
+        if (player === this.defuseInteractor) {
+            this.defuseInteractor = null;
+            this.game.hud?.showNotification?.('拆除被打断！', 1.5);
+        }
+    }
+
+    // 玩家长按交互入口：team=玩家阵营；返回 true 表示模式接管了交互
+    interact(player, dt) {
+        if (this.winner) return false;
+        const cps = this.game.world?.capturePoints || [];
+        if (this.currentMcom >= this.totalMcoms || this.currentMcom >= cps.length) return false;
+        const cp = cps[this.currentMcom];
+        if (!cp || !player?.alive || player.downed) return false;
+
+        const dx = player.position.x - cp.x;
+        const dz = player.position.z - cp.z;
+        const inRange = Math.sqrt(dx * dx + dz * dz) < (cp.radius || 6);
+        if (!inRange) {
+            if (player === this.armInteractor) this.armInteractor = null;
+            if (player === this.defuseInteractor) this.defuseInteractor = null;
+            return false;
+        }
+
+        const team = player.team !== undefined ? player.team : 0;
+        if (team === this.attackerTeam && !this.armed) {
+            this.armInteractor = player;
+            this.armProgress = Math.min(1, this.armProgress + dt / this.armDuration);
+            if (this.armProgress >= 1) {
+                this.armed = true;
+                this.fuseTimer = this.fuseDuration;
+                this.armProgress = 0;
+                this.armInteractor = null;
+                if (this.game.hud) {
+                    this.game.hud.showNotification(
+                        `M-COM 已安放！${Math.ceil(this.fuseDuration)} 秒后爆破`,
+                        3
+                    );
+                }
+            }
+            return true;
+        }
+        if (team === this.defenderTeam && this.armed) {
+            this.defuseInteractor = player;
+            this.defuseProgress = Math.min(1, this.defuseProgress + dt / this.defuseDuration);
+            if (this.defuseProgress >= 1) {
+                this.armed = false;
+                this.fuseTimer = 0;
+                this.defuseProgress = 0;
+                this.defuseInteractor = null;
+                this._lastFuseWarn = 0;
+                if (this.game.hud) {
+                    this.game.hud.showNotification('M-COM 炸药已拆除！', 2.5);
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // 玩家松开交互键时调用：打断当前进度
+    cancelInteract(player) {
+        if (player === this.armInteractor) this.armInteractor = null;
+        if (player === this.defuseInteractor) this.defuseInteractor = null;
     }
 
     update(dt) {
@@ -85,29 +176,16 @@ export class RushMode extends GameMode {
         const cp = cps[this.currentMcom];
         if (!cp) return;
 
-        // 攻方完成占领 = 安放炸药
-        if (!this.armed && cp.team === this.attackerTeam) {
-            this.armed = true;
-            this.fuseTimer = this.fuseDuration;
-            if (this.game.hud) {
-                this.game.hud.showNotification(
-                    `M-COM 已安放！${Math.ceil(this.fuseDuration)} 秒后爆破`,
-                    3
-                );
-            }
+        // 未安放时缓慢回退安放进度（玩家离开或被打断后）
+        if (!this.armed && this.armInteractor == null && this.armProgress > 0) {
+            this.armProgress = Math.max(0, this.armProgress - dt / this.armDuration * 0.5);
+        }
+        // 已安放但无人拆除时缓慢回退拆除进度
+        if (this.armed && this.defuseInteractor == null && this.defuseProgress > 0) {
+            this.defuseProgress = Math.max(0, this.defuseProgress - dt / this.defuseDuration * 0.5);
         }
 
         if (this.armed) {
-            // 守方夺回 = 拆除
-            if (cp.team === this.defenderTeam) {
-                this.armed = false;
-                this.fuseTimer = 0;
-                this._lastFuseWarn = 0;
-                if (this.game.hud) {
-                    this.game.hud.showNotification('M-COM 炸药已拆除！', 2.5);
-                }
-                return;
-            }
             const prev = this.fuseTimer;
             this.fuseTimer -= dt;
             // 引线倒计时播报：10 秒内每秒提示一次
@@ -124,12 +202,8 @@ export class RushMode extends GameMode {
         }
     }
 
-    onCapturePoint(cp, team) {
-        if (team === this.attackerTeam) {
-            // 安放在 update 中检测
-        } else if (team === this.defenderTeam && this.armed) {
-            // 拆除在 update 中检测
-        }
+    onCapturePoint() {
+        // 抢攻模式不再通过占领完成自动爆破；M-COM 状态完全由 interact/cancelInteract 管理
     }
 
     onTimeExpired() {
@@ -188,6 +262,8 @@ export class RushMode extends GameMode {
         data.attackerTeam = this.attackerTeam;
         data.armed = this.armed;
         data.fuseTimer = Math.max(0, this.fuseTimer);
+        data.armProgress = this.armProgress;
+        data.defuseProgress = this.defuseProgress;
         data.modeHint = this.armed
             ? `M-COM 爆破中 ${Math.ceil(this.fuseTimer)}s`
             : `M-COM ${this.currentMcom + 1}/${this.totalMcoms}`;

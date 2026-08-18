@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260811.1';
+import { CONFIG } from '../config.js?v=20260812.1';
 
 export class FortificationSystem {
     constructor(scene, options = {}) {
@@ -224,7 +224,7 @@ export class FortificationSystem {
         const z = this._previewRoot.position.z;
         const yaw = this._previewRoot.rotation.y;
         const halfMap = (this.world.mapConfig?.size || CONFIG.WORLD.size) / 2 - this.config.boundaryPadding;
-        if (Math.abs(x) + cfg.width / 2 > halfMap || Math.abs(z) + cfg.width / 2 > halfMap) {
+        if (Math.abs(x) + cfg.width / 2 > halfMap || Math.abs(z) + cfg.depth / 2 > halfMap) {
             return { valid: false, reason: '超出战场边界', groundY: this.world.getHeight(x, z) };
         }
 
@@ -423,6 +423,33 @@ export class FortificationSystem {
         }
         this.items.splice(idx, 1);
         this.world?.invalidateMeshCaches?.();
+    }
+
+    // === 玩法效果查询 ===
+    inWireArea(x, z, radius = 1.2) {
+        for (const item of this.items) {
+            if (item.type !== 'wire') continue;
+            const dx = item.root.position.x - x;
+            const dz = item.root.position.z - z;
+            if (dx * dx + dz * dz < radius * radius) return true;
+        }
+        return false;
+    }
+
+    findNearbyHedgehog(x, z, radius = 2.0) {
+        let best = null;
+        let bestDist = radius;
+        for (const item of this.items) {
+            if (item.type !== 'hedgehog') continue;
+            const dx = item.root.position.x - x;
+            const dz = item.root.position.z - z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = item;
+            }
+        }
+        return best;
     }
 
     _createResources() {

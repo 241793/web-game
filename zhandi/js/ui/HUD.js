@@ -58,6 +58,8 @@ export class HUD {
             'directorPanel', 'directorMissionText', 'directorMissionTime', 'directorMissionProgress',
             'directorRequisition', 'directorSpecialization', 'directorModeStatus',
             'supportPanel', 'supportBalance', 'supportSmokeStatus', 'supportSupplyStatus', 'supportRallyStatus',
+            // 死亡观战侧边小面板
+            'spectatePanel', 'spectateTargetName', 'spectateTimer', 'btnSpectateNext', 'btnSpectateExit',
         ];
         for (const id of ids) {
             this.elements[id] = document.getElementById(id);
@@ -1479,6 +1481,42 @@ export class HUD {
         if (this.elements.objectiveText) this.elements.objectiveText.textContent = text;
     }
 
+    // Rush M-COM 安放/拆除进度条（准心下方）
+    updateRushMcomProgress(armed, armProgress, defuseProgress, fuseTimer) {
+        let bar = document.getElementById('mcomProgressBar');
+        if (!bar) {
+            // 延迟创建 DOM，避免对非 Rush 模式造成负担
+            bar = document.createElement('div');
+            bar.id = 'mcomProgressBar';
+            bar.className = 'mcom-progress hidden';
+            bar.innerHTML = `
+                <div class="mcom-label">M-COM</div>
+                <div class="mcom-track"><div class="mcom-fill"></div></div>
+                <div class="mcom-status"></div>
+            `;
+            document.body.appendChild(bar);
+        }
+        const fill = bar.querySelector('.mcom-fill');
+        const status = bar.querySelector('.mcom-status');
+        const label = bar.querySelector('.mcom-label');
+        const progress = armed ? defuseProgress : armProgress;
+        if (progress <= 0.001) {
+            bar.classList.add('hidden');
+            return;
+        }
+        bar.classList.remove('hidden');
+        fill.style.transform = `scaleX(${progress})`;
+        if (armed) {
+            label.textContent = '拆除中';
+            fill.classList.add('defuse');
+            status.textContent = `引线 ${Math.ceil(fuseTimer)}s`;
+        } else {
+            label.textContent = '安放中';
+            fill.classList.remove('defuse');
+            status.textContent = `${Math.round(progress * 100)}%`;
+        }
+    }
+
     // 通知
     showNotification(text, duration = 3) {
         this.elements.notification.textContent = text;
@@ -1617,6 +1655,45 @@ export class HUD {
                         ? '观战中…' : '';
                 }
             }
+        }
+        // 更新侧边面板的目标名称
+        if (this.elements.spectateTargetName) {
+            this.elements.spectateTargetName.textContent = name || '—';
+        }
+        // 切换侧边面板可见性：有目标则显示
+        if (this.elements.spectatePanel) {
+            this.elements.spectatePanel.classList.toggle('hidden', !name);
+        }
+    }
+
+    updateSpectateTimer(seconds) {
+        if (this.elements.spectateTimer) {
+            const s = Math.max(0, Math.ceil(seconds));
+            this.elements.spectateTimer.textContent = `${s}s 后重生`;
+        }
+    }
+
+    hideSpectatePanel() {
+        if (this.elements.spectatePanel) {
+            this.elements.spectatePanel.classList.add('hidden');
+        }
+        this._spectatingName = null;
+    }
+
+    bindSpectateControls({ onNext, onExit } = {}) {
+        this._spectateOnNext = onNext || null;
+        this._spectateOnExit = onExit || null;
+        if (this.elements.btnSpectateNext) {
+            this.elements.btnSpectateNext.onclick = (e) => {
+                e.preventDefault();
+                this._spectateOnNext?.();
+            };
+        }
+        if (this.elements.btnSpectateExit) {
+            this.elements.btnSpectateExit.onclick = (e) => {
+                e.preventDefault();
+                this._spectateOnExit?.();
+            };
         }
     }
 

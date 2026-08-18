@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260811.1';
+import { CONFIG } from '../config.js?v=20260812.1';
 import { CharacterModel } from '../player/CharacterModel.js?v=20260811.2';
 
 // AI状态
@@ -199,6 +199,10 @@ export class Bot {
         this._smokeZones = Array.isArray(smokeZones)
             ? smokeZones
             : (smokeZones ? [smokeZones] : []);
+    }
+
+    setFortifications(fortifications) {
+        this.fortifications = fortifications || null;
     }
 
     update(dt, allTargets, capturePoints, player) {
@@ -797,6 +801,10 @@ export class Bot {
                         this._reviveTarget = null;
                         if (this.state !== AIState.ENGAGE) targetPos = this.patrolTarget;
                     }
+                    speedMult *= 0.5;
+                }
+                // 铁丝网减速：陷入网区的 Bot 显著减速（伤害由玩家承担，Bot 用路径避开）
+                if (this.fortifications?.inWireArea?.(this.position.x, this.position.z)) {
                     speedMult *= 0.5;
                 }
                 const speed = CONFIG.AI.moveSpeed * speedMult;

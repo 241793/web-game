@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260811.1';
-import { createProceduralMaterial, createSvgCanvasTexture } from '../utils/VisualAssets.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260812.1';
+import { createProceduralMaterial, createSvgCanvasTexture } from '../utils/VisualAssets.js?v=20260812.1';
 
 const _svgTextureCache = new Map();
 const _svgMaterialCache = new Map();

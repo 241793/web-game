@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260811.1';
+import { CONFIG } from '../config.js?v=20260812.1';
 
 // 玩家控制器 - 第一人称移动、视角、姿态控制
 export class PlayerController {
@@ -501,6 +501,22 @@ export class PlayerController {
 
         if (this.suppression > 0.3) {
             speed *= (1 - this.suppression * 0.3);
+        }
+
+        // 铁丝网减速（进入范围内整体降速，冲刺被限制）
+        if (this.fortifications?.inWireArea?.(this.position.x, this.position.z)) {
+            speed *= 0.45;
+            this.isSprinting = false;
+            this._wireDmgTimer = (this._wireDmgTimer || 0) + dt;
+            if (this._wireDmgTimer >= 1.0) {
+                this._wireDmgTimer = 0;
+                if (this.alive && !this.downed) {
+                    this.health = Math.max(0, this.health - 4);
+                    if (this.health <= 0) this._enterDownedState(null);
+                }
+            }
+        } else {
+            this._wireDmgTimer = 0;
         }
 
         // 拖拽时整体减速（战地5：拖拽重负，移动缓慢）
@@ -2027,5 +2043,9 @@ export class PlayerController {
 
     setAudio(audio) {
         this.audio = audio;
+    }
+
+    setFortifications(fortifications) {
+        this.fortifications = fortifications || null;
     }
 }

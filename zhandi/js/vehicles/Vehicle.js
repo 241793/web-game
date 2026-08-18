@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260811.1';
-import { createProceduralMaterial, createSvgCanvasTexture } from '../utils/VisualAssets.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260812.1';
+import { createProceduralMaterial, createSvgCanvasTexture } from '../utils/VisualAssets.js?v=20260812.1';
 
 const _vehicleSvgTextureCache = new Map();
 const _vehicleSvgMaterialCache = new Map();
@@ -1851,7 +1851,30 @@ export class Vehicle {
     }
 
     // 更新载具
+    setFortifications(fortifications) {
+        this.fortifications = fortifications || null;
+    }
+
+    _getVehicleCollisionRadius() {
+        const radiusByType = { jeep: 1.9, apc: 2.7, tank: 3.2, heli: 3.4 };
+        return radiusByType[this.type] || 2.2;
+    }
+
     update(dt, input, isDriver) {
+        // 反坦克桩碰撞：高速撞击受损 + 短暂阻滞
+        if (this.fortifications && this.alive && this.velocity > 4) {
+            this._hedgehogTimer = (this._hedgehogTimer || 0) - dt;
+            if (this._hedgehogTimer <= 0) {
+                this._hedgehogTimer = 0.5;
+                const hedgehog = this.fortifications.findNearbyHedgehog(this.position.x, this.position.z, this._getVehicleCollisionRadius() + 0.3);
+                if (hedgehog) {
+                    this.takeDamage(Math.min(45, 8 + this.velocity * 0.8), this.position, null, { damageType: 'explosion' });
+                    this.velocity *= 0.45;
+                    if (this.audio?.playUISound) this.audio.playUISound('impact');
+                }
+            }
+        }
+
         if (!this.alive) return;
 
         if (isDriver && input) {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createProceduralMaterial } from '../utils/VisualAssets.js?v=20260802.3';
+import { createProceduralMaterial } from '../utils/VisualAssets.js?v=20260812.1';
 
 // 障碍物系统 - 建筑物、掩体、围墙等，带碰撞检测
 export class ObstacleSystem {
@@ -669,12 +669,156 @@ export class ObstacleSystem {
         const mapId = this.mapConfig?.id;
         if (mapId === 'normandy' || mapId === 'iwojima') {
             this._createBeachObstacles(terrain, mapId);
+            if (mapId === 'iwojima') this._createVolcanicSetPieces(terrain);
         } else if (mapId === 'ardennes') {
             this._createSnowDrifts(terrain);
         } else if (mapId === 'stalingrad') {
             this._createUrbanRuins(terrain);
+        } else if (mapId === 'default') {
+            this._createFrontlineSetPieces(terrain);
         }
         this._createThemedSceneryBatches(terrain);
+    }
+
+    // 前线突击：弹坑 + 环形沙袋工事 + 弹药箱堆（战场中央化布置）
+    _createFrontlineSetPieces(terrain) {
+        const random = this._createSeededRandom(1337);
+        const sandbagMat = createProceduralMaterial('fabric', {
+            baseColor: 0x6e6a55, accentColor: 0x3a362c, detailColor: 0xa89f7d,
+            size: 64, repeatX: 2, repeatY: 1, anisotropy: 2,
+        }, { roughness: 0.98 });
+        const crateMat = createProceduralMaterial('wood', {
+            baseColor: 0x6a4a2a, accentColor: 0x2e1d10, detailColor: 0xa17845,
+            size: 64, repeatX: 2, repeatY: 2, anisotropy: 2,
+        }, { roughness: 0.92 });
+
+        // 弹坑：深色圆形贴地 + 中心凹陷视觉（深色圆斑）
+        const craterCount = 10;
+        for (let i = 0; i < craterCount; i++) {
+            const x = (random() - 0.5) * 300;
+            const z = (random() - 0.5) * 300;
+            if (Math.abs(x) < 20 && Math.abs(z) < 20) continue;
+            if (this._shouldSkipPropForBuildingAccess?.(x, z, 3)) continue;
+            if (!this._canPlaceProp(terrain, x, z, { maxSlope: 0.5, avoidBuildingPad: 1.5 })) continue;
+            const r = 2.2 + random() * 3.5;
+            this._createGroundPatch(x, z, r, r, terrain, 0x2e2a24, 0.52, random() * Math.PI);
+        }
+
+        // 环形沙袋工事（可破坏掩体，环绕中央战区）
+        const nestCenters = [
+            { x: -34, z: 28 }, { x: 36, z: -26 }, { x: -28, z: -36 },
+            { x: 40, z: 32 }, { x: -46, z: -12 }, { x: 12, z: 46 },
+        ];
+        for (const c of nestCenters) {
+            if (this._shouldSkipPropForBuildingAccess?.(c.x, c.z, 3.5)) continue;
+            const segments = 8;
+            for (let i = 0; i < segments; i++) {
+                const angle = (i / segments) * Math.PI * 2 + c.x * 0.01;
+                if (Math.abs(Math.sin(angle)) < 0.28 && c.x < 0) continue;
+                const bx = c.x + Math.cos(angle) * 2.4;
+                const bz = c.z + Math.sin(angle) * 2.4;
+                if (!this._canPlaceProp(terrain, bx, bz, { maxSlope: 0.55, avoidBuildingPad: 1.2 })) continue;
+                const by = this._groundY(terrain, bx, bz);
+                const bag = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.55, 0.62), sandbagMat);
+                bag.position.set(bx, by + 0.28, bz);
+                bag.rotation.y = -angle;
+                bag.castShadow = false;
+                bag.receiveShadow = false;
+                bag.userData.destructibleType = 'sandbag';
+                this.scene.add(bag);
+                this.addCollisionBox(bx, by, bz, 1.1, 0.55, 0.62, bag);
+            }
+        }
+
+        // 弹药箱堆（散落补给点）
+        const ammoClusters = [
+            { x: -22, z: -8 }, { x: 24, z: 10 }, { x: -6, z: -24 },
+            { x: 8, z: 26 }, { x: -40, z: 40 }, { x: 44, z: -40 },
+        ];
+        for (const c of ammoClusters) {
+            if (this._shouldSkipPropForBuildingAccess?.(c.x, c.z, 1.6)) continue;
+            for (let k = 0; k < 3; k++) {
+                const ox = c.x + (random() - 0.5) * 1.8;
+                const oz = c.z + (random() - 0.5) * 1.8;
+                if (!this._canPlaceProp(terrain, ox, oz, { maxSlope: 0.55, avoidBuildingPad: 1 })) continue;
+                const oy = this._groundY(terrain, ox, oz);
+                const s = 0.9 + random() * 0.7;
+                const crate = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), crateMat);
+                crate.position.set(ox, oy + s * 0.5, oz);
+                crate.rotation.y = random() * Math.PI;
+                crate.castShadow = false;
+                crate.receiveShadow = false;
+                crate.userData.destructibleType = 'crate';
+                this.scene.add(crate);
+                this.addCollisionBox(ox, oy, oz, s, s, s, crate);
+            }
+        }
+    }
+
+    // 硫磺岛：黑岩柱 + 火山灰丘 + 硫磺裂缝贴地标记（火山氛围）
+    _createVolcanicSetPieces(terrain) {
+        const random = this._createSeededRandom(9999);
+        const rockMat = createProceduralMaterial('concrete', {
+            baseColor: 0x2e2b28, accentColor: 0x15120f, detailColor: 0x4a443d,
+            size: 64, repeatX: 1, repeatY: 1, anisotropy: 2,
+        }, { roughness: 1 });
+        const sulfurMat = createProceduralMaterial('terrain', {
+            baseColor: 0x8a7a2a, accentColor: 0x3a3410, detailColor: 0xc9b84a,
+            size: 64, repeatX: 1, repeatY: 1, anisotropy: 2,
+        }, { roughness: 0.98 });
+
+        // 黑岩柱（InstancedMesh，高低错落）
+        const pillarGeo = new THREE.CylinderGeometry(0.4, 0.7, 1, 6);
+        const pillarTransforms = [];
+        const pillarCount = 22;
+        let attempts = 0;
+        while (pillarTransforms.length < pillarCount && attempts < pillarCount * 8) {
+            attempts++;
+            const x = (random() - 0.5) * 340;
+            const z = (random() - 0.5) * 340;
+            if (Math.abs(x) < 20 && Math.abs(z) < 20) continue;
+            if (this._isNearSpawnOrVehicle(x, z, 6)) continue;
+            if (!this._canPlaceProp(terrain, x, z, { maxSlope: 0.65, avoidBuildingPad: 1.5 })) continue;
+            const y = this._groundY(terrain, x, z);
+            const h = 1.2 + random() * 3.5;
+            pillarTransforms.push({
+                position: new THREE.Vector3(x, y + h * 0.35, z),
+                rotation: new THREE.Euler(0, random() * Math.PI, 0),
+                scale: { x: 0.8 + random() * 0.8, y: h, z: 0.8 + random() * 0.8 },
+            });
+        }
+        this._createInstancedDecoration('iwojima_rock_pillars', pillarGeo, rockMat, pillarTransforms);
+
+        // 火山灰丘（InstancedMesh，扁圆丘）
+        const duneGeo = new THREE.DodecahedronGeometry(0.9, 0);
+        const duneTransforms = [];
+        const duneCount = 18;
+        attempts = 0;
+        while (duneTransforms.length < duneCount && attempts < duneCount * 8) {
+            attempts++;
+            const x = (random() - 0.5) * 320;
+            const z = (random() - 0.5) * 320;
+            if (this._isNearSpawnOrVehicle(x, z, 5)) continue;
+            if (!this._canPlaceProp(terrain, x, z, { maxSlope: 0.6, avoidBuildingPad: 1 })) continue;
+            const y = this._groundY(terrain, x, z);
+            const r = 0.9 + random() * 1.6;
+            duneTransforms.push({
+                position: new THREE.Vector3(x, y + r * 0.16, z),
+                rotation: new THREE.Euler(0, random() * Math.PI, 0),
+                scale: { x: r * 1.4, y: r * 0.35, z: r * 1.2 },
+            });
+        }
+        this._createInstancedDecoration('iwojima_ash_dunes', duneGeo, rockMat, duneTransforms);
+
+        // 硫磺裂缝：黄色贴地条带标记（无碰撞视觉）
+        for (let i = 0; i < 8; i++) {
+            const x = (random() - 0.5) * 300;
+            const z = (random() - 0.5) * 300;
+            if (!this._canPlaceProp(terrain, x, z, { maxSlope: 0.55, avoidBuildingPad: 1 })) continue;
+            const w = 1.4 + random() * 2.2;
+            const d = 2.5 + random() * 5;
+            this._createFlatStripe(x, z, w, d, terrain, 0x9a8a3a, random() * Math.PI, 'sulfur_vent');
+        }
     }
 
     // 斯大林格勒：废墟墙段、倾倒烟囱、碎石堆
@@ -872,15 +1016,17 @@ export class ObstacleSystem {
         const beachZMin = mapId === 'normandy' ? 95 : 105;
         const beachZMax = 160;
         const count = 22;
+        // 种子随机：每次重建布局一致，便于回归/截图对比
+        const random = this._createSeededRandom(mapId === 'normandy' ? 111 : 222);
         for (let i = 0; i < count; i++) {
-            const x = (Math.random() - 0.5) * 180;
-            const z = beachZMin + Math.random() * (beachZMax - beachZMin);
+            const x = (random() - 0.5) * 180;
+            const z = beachZMin + random() * (beachZMax - beachZMin);
             if (this._shouldSkipPropForBuildingAccess(x, z, 1.5)) continue;
             const y = this._groundY(terrain, x, z);
             if (!this._isAboveWater(y)) continue;
             if (this.checkCollision(new THREE.Vector3(x, 0, z), 1.6, 2)) continue;
 
-            if (Math.random() < 0.65) {
+            if (random() < 0.65) {
                 // 捷克刺猬：三根交叉工字钢
                 const hedgehog = new THREE.Group();
                 hedgehog.position.set(x, y + 0.45, z);
@@ -893,15 +1039,15 @@ export class ObstacleSystem {
                     );
                     hedgehog.add(beam);
                 }
-                hedgehog.rotation.y = Math.random() * Math.PI;
+                hedgehog.rotation.y = random() * Math.PI;
                 this.scene.add(hedgehog);
                 this.addCollisionBox(x, y, z, 1.6, 1.3, 1.6, hedgehog);
             } else {
                 // 斜插木桩
-                const h = 1.6 + Math.random() * 0.9;
+                const h = 1.6 + random() * 0.9;
                 const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, h, 5), woodMat);
                 pole.position.set(x, y + h * 0.42, z);
-                pole.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * Math.PI, 0.5 + Math.random() * 0.25);
+                pole.rotation.set((random() - 0.5) * 0.5, random() * Math.PI, 0.5 + random() * 0.25);
                 this.scene.add(pole);
                 this.addCollisionBox(x, y, z, 0.5, h, 0.5, pole);
             }
@@ -2059,8 +2205,105 @@ export class ObstacleSystem {
                 this._createCheckpointGate(landmark.x, landmark.z, terrain, landmark.rotation || 0, color);
             } else if (landmark.type === 'industrial') {
                 this._createIndustrialLandmark(landmark, terrain);
+            } else if (landmark.type === 'watchtower') {
+                this._createWatchtowerLandmark(landmark, terrain);
+            } else if (landmark.type === 'sniperNest') {
+                this._createSniperNestLandmark(landmark, terrain);
             }
         }
+    }
+
+    // 瞭望塔：木/钢混合结构，提供垂直制高点（含碰撞掩体）
+    _createWatchtowerLandmark(landmark, terrain) {
+        const x = landmark.x;
+        const z = landmark.z;
+        const y = terrain.getHeight(x, z);
+        const woodMat = createProceduralMaterial('wood', {
+            baseColor: 0x5a4832, accentColor: 0x2a1e12, detailColor: 0x8a6f4c,
+            size: 64, repeatX: 2, repeatY: 2, anisotropy: 2,
+        }, { roughness: 0.96 });
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0x3a3630, roughness: 0.85 });
+        const grp = new THREE.Group();
+
+        // 四根主立柱
+        const legPositions = [[-1.4, -1.4], [1.4, -1.4], [-1.4, 1.4], [1.4, 1.4]];
+        for (const [lx, lz] of legPositions) {
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.28, 8.5, 0.28), woodMat);
+            leg.position.set(lx, 4.25, lz);
+            grp.add(leg);
+        }
+        // 横撑（X 型交叉）
+        for (let i = 0; i < 2; i++) {
+            const cross = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.2, 0.16), woodMat);
+            cross.position.set(0, 1.6 + i * 2.6, i === 0 ? -1.4 : 1.4);
+            cross.rotation.y = i === 0 ? Math.PI / 4 : -Math.PI / 4;
+            grp.add(cross);
+            const cross2 = cross.clone();
+            cross2.position.set(0, 1.6 + i * 2.6, i === 0 ? 1.4 : -1.4);
+            cross2.rotation.y = -cross.rotation.y;
+            grp.add(cross2);
+        }
+        // 平台底板
+        const platform = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.24, 3.4), woodMat);
+        platform.position.set(0, 7.6, 0);
+        grp.add(platform);
+        // 围栏（低矮四边）
+        const railMat = new THREE.MeshStandardMaterial({ color: 0x6a5a42, roughness: 0.9 });
+        for (const [rx, rz, rw, rd] of [[0, -1.65, 3.4, 0.12], [0, 1.65, 3.4, 0.12], [-1.65, 0, 0.12, 3.4], [1.65, 0, 0.12, 3.4]]) {
+            const rail = new THREE.Mesh(new THREE.BoxGeometry(rw, 0.9, rd), railMat);
+            rail.position.set(rx, 8.15, rz);
+            grp.add(rail);
+        }
+        // 顶棚
+        const roof = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.8, 0.5, 4), darkMat);
+        roof.position.set(0, 8.9, 0);
+        roof.rotation.y = Math.PI / 4;
+        grp.add(roof);
+
+        grp.position.set(x, y, z);
+        grp.rotation.y = landmark.rotation || 0;
+        grp.name = 'watchtower';
+        this.scene.add(grp);
+        this.addCollisionBox(x, y, z, 3.4, 8.5, 3.4, grp, landmark.rotation || 0);
+    }
+
+    // 狙击巢/机枪沙袋环形阵地（半掩体，步兵可进入据守）
+    _createSniperNestLandmark(landmark, terrain) {
+        const x = landmark.x;
+        const z = landmark.z;
+        const y = terrain.getHeight(x, z);
+        const sandbagMat = createProceduralMaterial('fabric', {
+            baseColor: 0x8a8578, accentColor: 0x4a463d, detailColor: 0xb8b0a0,
+            size: 64, repeatX: 2, repeatY: 2, anisotropy: 2,
+        }, { roughness: 0.98 });
+        const grp = new THREE.Group();
+        const segments = 10;
+        const radius = 3.2;
+        const bagH = 0.7;
+        // 环形沙袋墙（留一个缺口朝 rotation 方向）
+        for (let i = 0; i < segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            // 缺口：约 45° 扇区不放置
+            if (Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle))) < 0.4) continue;
+            const bx = Math.cos(angle) * radius;
+            const bz = Math.sin(angle) * radius;
+            const bag = new THREE.Mesh(new THREE.BoxGeometry(1.1, bagH, 0.55), sandbagMat);
+            bag.position.set(bx, bagH * 0.5, bz);
+            bag.rotation.y = -angle;
+            grp.add(bag);
+            // 第二层叠高
+            if (i % 3 === 0) {
+                const bag2 = new THREE.Mesh(new THREE.BoxGeometry(1.1, bagH, 0.55), sandbagMat);
+                bag2.position.set(bx, bagH * 1.5, bz);
+                bag2.rotation.y = -angle;
+                grp.add(bag2);
+            }
+        }
+        grp.position.set(x, y, z);
+        grp.rotation.y = landmark.rotation || 0;
+        grp.name = 'sniper_nest';
+        this.scene.add(grp);
+        this.addCollisionBox(x, y, z, radius * 2, 1.4, radius * 2, grp, landmark.rotation || 0);
     }
 
     _createHelipadLandmark(landmark, terrain) {

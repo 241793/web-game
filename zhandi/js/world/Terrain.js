@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createProceduralTexture } from '../utils/VisualAssets.js?v=20260802.3';
+import { createProceduralTexture } from '../utils/VisualAssets.js?v=20260812.1';
 
 // 地形系统 - 生成战场地形（基于地图配置的差异化地形）
 export class Terrain {

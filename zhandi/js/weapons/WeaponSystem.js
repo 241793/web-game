@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config.js?v=20260811.1';
-import { createProceduralMaterial } from '../utils/VisualAssets.js?v=20260801.2';
+import { CONFIG } from '../config.js?v=20260812.1';
+import { createProceduralMaterial } from '../utils/VisualAssets.js?v=20260812.1';
 
 // 武器系统 - 管理武器状态、射击、弹道、特效
 export class WeaponSystem {
@@ -2041,6 +2041,8 @@ export class WeaponSystem {
     // 射击逻辑
     tryFire(now) {
         if (!this.currentWeapon || this.isReloading || this.switchAnimTimer > 0) return false;
+        // 换枪动画期间禁止射击：视觉武器、currentWeapon 与弹药状态可能错位
+        if (this._pendingSwitchIdx >= 0 && this._pendingSwitchIdx !== this.currentWeaponIdx) return false;
         // 泵动枪械（M870）射击后必须完成泵动周期才能再次击发
         if (this._pumpTimer > 0) return false;
         // 移除切换动画期间不能射击的限制（开枪无限制）
@@ -2263,6 +2265,8 @@ export class WeaponSystem {
         // 对 hitscan 武器进行两阶段检测：先确定距离，再根据子弹速度和重力计算下坠量
         let intersects = initialIntersects;
         let finalDirection = direction;
+        let dropApplied = false;
+        let dropAmount = 0;
         if (config.bulletDrop && config.bulletSpeed && initialIntersects.length > 0) {
             const hitDist = initialIntersects[0].distance;
             if (hitDist > 5) {
@@ -2279,21 +2283,24 @@ export class WeaponSystem {
                     this._dropRaycaster.near = 0.08;
                     this._dropRaycaster.far = config.range;
                     const dropIntersects = this._dropRaycaster.intersectObjects(targets, true);
-                    if (dropIntersects.length > 0) {
-                        intersects = dropIntersects;
-                        finalDirection = adjustedDir;
-                    }
+                    // 即使二次射线未命中也必须采用下坠后的方向，保证命中、曳光和后续穿透使用同一方向
+                    intersects = dropIntersects.length > 0 ? dropIntersects : initialIntersects;
+                    finalDirection = adjustedDir;
+                    dropApplied = true;
+                    dropAmount = drop;
                 }
             }
         }
 
-        this._processRaycastHits(intersects, origin, finalDirection, config, tracerStart);
+        // 传递下坠量给命中处理，确保曳光/穿透与最终命中方向一致
+        this._processRaycastHits(intersects, origin, finalDirection, config, tracerStart, dropApplied ? dropAmount : 0);
     }
 
     // 检查物体是否可被子弹穿透
-    _processRaycastHits(intersects, origin, direction, config, tracerStart) {
+    _processRaycastHits(intersects, origin, direction, config, tracerStart, dropOverride = -1) {
         // 计算弹道下坠量（用于曲线曳光弹可视化）
         const _calcDrop = (hitDist) => {
+            if (dropOverride >= 0) return dropOverride;
             if (!config.bulletDrop || !config.bulletSpeed || hitDist <= 5) return 0;
             const tof = hitDist / config.bulletSpeed;
             return 0.5 * config.bulletDrop * tof * tof;

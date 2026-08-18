@@ -532,6 +532,20 @@
             </div>
         </div>
 
+        <!-- 死亡观战侧边小面板（不遮挡观战视线）-->
+        <div id="spectatePanel" class="hidden">
+            <div class="sp-header">
+                <span class="sp-dot"></span>
+                <span class="sp-title">观战中</span>
+            </div>
+            <div class="sp-target" id="spectateTargetName">—</div>
+            <div class="sp-timer" id="spectateTimer">5s 后重生</div>
+            <div class="sp-actions">
+                <button id="btnSpectateNext" class="sp-btn" type="button">下一名队友</button>
+                <button id="btnSpectateExit" class="sp-btn sp-btn-secondary" type="button">部署界面</button>
+            </div>
+        </div>
+
         <!-- 部署/重生界面 -->
         <div id="deployScreen" class="hidden">
             <div class="deploy-content">
@@ -710,6 +724,6 @@
         </div>
     </div>
 
-    <script type="module" src="js/main.js?v=20260811.1"></script>
+    <script type="module" src="js/main.js?v=20260812.2"></script>
 </body>
 </html>

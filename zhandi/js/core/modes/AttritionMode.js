@@ -6,11 +6,16 @@ export class AttritionMode extends GameMode {
         super(game, modeConfig);
         this.reinforcements = [0, 0];
         this._maxReinforcements = modeConfig.maxReinforcements || 30;
+        // 阶段性补员：每 90 秒双方各补 5 增援，模拟后方援军抵达
+        this._phaseInterval = modeConfig.phaseInterval || 90;
+        this._phaseTimer = this._phaseInterval;
+        this._phaseBonus = modeConfig.phaseBonus || 5;
     }
 
     onMatchStart() {
         super.onMatchStart();
         this.reinforcements = [this._maxReinforcements, this._maxReinforcements];
+        this._phaseTimer = this._phaseInterval;
         if (this.game.hud) {
             this.game.hud.showNotification('消耗战：增援有限，医疗兵救援可减少资源损耗！', 5);
         }
@@ -18,6 +23,17 @@ export class AttritionMode extends GameMode {
 
     update(dt) {
         super.update(dt);
+        if (this.winner) return;
+        // 阶段性补员：每 90 秒双方各补 5 增援，模拟后方援军抵达
+        this._phaseTimer -= dt;
+        if (this._phaseTimer <= 0) {
+            this._phaseTimer = this._phaseInterval;
+            this.reinforcements[0] = Math.min(this._maxReinforcements, this.reinforcements[0] + this._phaseBonus);
+            this.reinforcements[1] = Math.min(this._maxReinforcements, this.reinforcements[1] + this._phaseBonus);
+            if (this.game.hud) {
+                this.game.hud.showNotification(`阶段补员 +${this._phaseBonus}`, 2.5);
+            }
+        }
     }
 
     onPlayerDeath(dead, killer) {

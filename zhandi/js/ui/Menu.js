@@ -1,4 +1,4 @@
-import { CONFIG } from '../config.js?v=20260811.1';
+import { CONFIG } from '../config.js?v=20260812.1';
 
 // 菜单管理器 - 管理所有菜单界面
 export class MenuManager {
@@ -541,7 +541,10 @@ export class MenuManager {
             ['摧毁载具', stats.vehiclesDestroyed],
             ['摧毁设施', stats.objectivesDestroyed],
             ['任务完成', stats.missionsCompleted],
+            ['任务参与', stats.missionsParticipated],
             ['工事建造', stats.fortificationsBuilt],
+            ['总分贡献', stats.scoreContribution],
+            ['票数贡献', stats.ticketContribution],
         ].filter(([, v]) => (v || 0) > 0);
         const contribHtml = contributions.length
             ? `<div class="go-contrib">${contributions.map(([label, v]) => `<span class="go-contrib-item">${label} <strong>${v}</strong></span>`).join('')}</div>`

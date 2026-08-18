@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Terrain } from './Terrain.js?v=20260811.1';
-import { ObstacleSystem } from './Obstacles.js?v=20260810.2';
-import { createProceduralTexture } from '../utils/VisualAssets.js?v=20260802.3';
-import { CONFIG } from '../config.js?v=20260811.1';
+import { ObstacleSystem } from './Obstacles.js?v=20260812.1';
+import { createProceduralTexture } from '../utils/VisualAssets.js?v=20260812.1';
+import { CONFIG } from '../config.js?v=20260812.1';
 
 // 世界管理器 - 管理场景、地形、障碍物、据点
 export class World {
@@ -21,6 +21,20 @@ export class World {
         this.strategicObjectives = [];
         this.lights = [];
         this.sky = null;
+        this._weatherQuality = 1;
+    }
+
+    // 性能自适应：0=关闭天气粒子，1=完整
+    setWeatherQuality(level) {
+        this._weatherQuality = level === 0 ? 0 : 1;
+        if (this._snow?.points) this._snow.points.visible = this._weatherQuality === 1;
+    }
+
+    // 性能自适应：低 FPS 时调用以减少降雪粒子更新频率
+    setWeatherUpdateThrottle(scale) {
+        // scale=1 → 每帧；scale=0.5 → 隔帧；scale=0.33 → 每 3 帧一次
+        this._weatherUpdateScale = Math.max(0.1, Math.min(1, scale));
+        this._weatherAccumulator = 0;
     }
 
     init() {
@@ -577,7 +591,28 @@ export class World {
 
     // 每帧：降雪粒子下落 + 火山熔岩脉冲（用 LightPool.flash）
     _updateWeather(dt, playerPosition) {
+        // 低性能档：降雪粒子直接跳过更新并隐藏
+        if (this._weatherQuality === 0) {
+            if (this._snow?.points && this._snow.points.visible) this._snow.points.visible = false;
+            return;
+        }
+        // 节流：低性能档时降低粒子更新频率（粒子位置仍随玩家跟随）
+        const scale = this._weatherUpdateScale ?? 1;
+        if (scale < 1) {
+            this._weatherAccumulator = (this._weatherAccumulator || 0) + dt;
+            const period = 1 / scale;
+            if (this._weatherAccumulator < period) {
+                // 仅跟随相机，不更新粒子位置
+                if (this._snow?.points && playerPosition) {
+                    this._snow.points.position.x = playerPosition.x;
+                    this._snow.points.position.z = playerPosition.z;
+                }
+                return;
+            }
+            this._weatherAccumulator = 0;
+        }
         if (this._snow) {
+            if (!this._snow.points.visible) this._snow.points.visible = true;
             const { points, positions, speeds, wind } = this._snow;
             const arr = positions;
             const st = this._snowTime || 0;
@@ -1292,6 +1327,22 @@ export class World {
             this._cachedLosMeshes = [...this.obstacles.getMeshes()];
         }
         return this._cachedLosMeshes;
+    }
+
+    // 两点间是否有阻挡（复用 LOS 网格，供 AI 载具/角色目标筛选）
+    hasLineOfSight(from, to) {
+        const meshes = this.getLosMeshes();
+        if (!meshes || meshes.length === 0) return true;
+        const dir = this._losDir || (this._losDir = new THREE.Vector3());
+        dir.copy(to).sub(from);
+        const dist = dir.length();
+        if (dist < 0.5) return true;
+        dir.normalize();
+        if (!this._losRaycaster) this._losRaycaster = new THREE.Raycaster();
+        this._losRaycaster.set(from, dir);
+        this._losRaycaster.far = dist - 0.3;
+        const hits = this._losRaycaster.intersectObjects(meshes, false);
+        return hits.length === 0;
     }
 
     // 破坏物移除/地图变更后必须失效缓存，否则子弹仍被“幽灵 mesh”挡住

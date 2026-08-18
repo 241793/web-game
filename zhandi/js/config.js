@@ -888,8 +888,8 @@ export const CONFIG = {
             holdBreathBonus: 2.0,
             // 可选武器：狙击步枪 / DMR
             weaponOptions: ['L96', 'M40A5', 'SKS', 'Kar98k', 'M1Garand'],
-            // 侦察兵主要依赖传感器标记
-            special: null,
+            // 侦察兵特殊装备：信号弹标记敌方（主动侦察）
+            special: 'spotflare',
         },
         support: {
             name: '支援兵',
@@ -1024,6 +1024,14 @@ export const CONFIG = {
             duration: 90,
             maxActive: 3,
             description: '快速堆叠沙袋作为掩体',
+        },
+        spotflare: {
+            name: '信号弹',
+            type: 'flare',
+            radius: 16,
+            duration: 12,
+            cooldown: 20,
+            description: '发射信号弹标记周围敌方单位，暴露其位置',
         },
     },
 
@@ -1588,6 +1596,11 @@ export const CONFIG = {
                     { type: 'sign', x: -64, z: -30, label: 'B' }, { type: 'sign', x: 64, z: 30, label: 'E', color: 0x6f5555 },
                     { type: 'checkpoint', x: -138, z: -104, rotation: Math.PI / 4, team: 0 },
                     { type: 'checkpoint', x: 138, z: 104, rotation: Math.PI / 4, team: 1 },
+                    { type: 'watchtower', x: -22, z: 14, rotation: 0.4 }, { type: 'watchtower', x: 22, z: -14, rotation: -0.4 },
+                    { type: 'watchtower', x: -48, z: 52, rotation: 1.1 }, { type: 'watchtower', x: 48, z: -52, rotation: -1.1 },
+                    { type: 'sniperNest', x: -8, z: 18, rotation: 0.3 }, { type: 'sniperNest', x: 8, z: -18, rotation: -0.3 },
+                    { type: 'sniperNest', x: -62, z: -74, rotation: 0.6 }, { type: 'sniperNest', x: 62, z: 74, rotation: -0.6 },
+                    { type: 'industrial', x: 90, z: 10, rotation: 0.1 }, { type: 'industrial', x: -90, z: -10, rotation: 0.2 },
                 ],
             },
             vehicleSpawns: [
@@ -1678,6 +1691,10 @@ export const CONFIG = {
                     { type: 'checkpoint', x: 98, z: 88, rotation: 0.7, team: 1 },
                     { type: 'comms', x: -4, z: -12 },
                     { type: 'sign', x: -38, z: -45, label: '桥头' }, { type: 'sign', x: 42, z: 56, label: '山脊', color: 0x626b5d },
+                    { type: 'watchtower', x: -18, z: -42, rotation: 0.5 }, { type: 'watchtower', x: 18, z: 44, rotation: -0.5 },
+                    { type: 'watchtower', x: -44, z: -6, rotation: 1.0 }, { type: 'watchtower', x: 44, z: 6, rotation: -1.0 },
+                    { type: 'sniperNest', x: -8, z: -28, rotation: 0.4 }, { type: 'sniperNest', x: 12, z: 34, rotation: -0.4 },
+                    { type: 'sniperNest', x: -54, z: 40, rotation: 0.8 }, { type: 'sniperNest', x: 54, z: -40, rotation: -0.8 },
                 ],
             },
             vehicleSpawns: [
@@ -1773,6 +1790,10 @@ export const CONFIG = {
                     { type: 'checkpoint', x: 42, z: 72, rotation: 0, team: 0 },
                     { type: 'sign', x: -28, z: 60, label: '海堤' }, { type: 'sign', x: 26, z: -50, label: '高地', color: 0x625d54 },
                     { type: 'industrial', x: 56, z: -30, rotation: 0 },
+                    { type: 'watchtower', x: -24, z: 88, rotation: 0 }, { type: 'watchtower', x: 24, z: 88, rotation: 0 },
+                    { type: 'watchtower', x: -30, z: -28, rotation: 1.2 }, { type: 'watchtower', x: 30, z: -28, rotation: -1.2 },
+                    { type: 'sniperNest', x: -16, z: 104, rotation: 0 }, { type: 'sniperNest', x: 16, z: 104, rotation: 0 },
+                    { type: 'sniperNest', x: -34, z: -10, rotation: 0.7 }, { type: 'sniperNest', x: 34, z: -10, rotation: -0.7 },
                 ],
             },
             vehicleSpawns: [
@@ -1817,6 +1838,13 @@ export const CONFIG = {
                 fogFar: 300,
                 grassDensity: 600,
                 grassColor: 0x5a6248,
+                coast: {
+                    direction: 'positiveZ',
+                    start: 148,
+                    transition: 32,
+                    waterLevel: 0.45,
+                    underwaterDepth: 7,
+                },
             },
             environment: {
                 theme: 'volcanic',
@@ -1864,6 +1892,10 @@ export const CONFIG = {
                     { type: 'checkpoint', x: -48, z: 72, rotation: 0.2, team: 0 },
                     { type: 'sign', x: -42, z: 50, label: '机场' }, { type: 'sign', x: 40, z: -18, label: '矿井', color: 0x57524b },
                     { type: 'comms', x: -12, z: -70 },
+                    { type: 'watchtower', x: -30, z: 90, rotation: 0.3 }, { type: 'watchtower', x: 28, z: 6, rotation: -0.3 },
+                    { type: 'watchtower', x: -10, z: -52, rotation: 1.0 }, { type: 'watchtower', x: 14, z: -46, rotation: -1.0 },
+                    { type: 'sniperNest', x: -20, z: 112, rotation: 0.2 }, { type: 'sniperNest', x: 20, z: 112, rotation: -0.2 },
+                    { type: 'sniperNest', x: -6, z: -62, rotation: 0.5 }, { type: 'sniperNest', x: 6, z: -66, rotation: -0.5 },
                 ],
             },
             vehicleSpawns: [
@@ -1957,6 +1989,11 @@ export const CONFIG = {
                     { type: 'industrial', x: 76, z: 48, rotation: 0.2 },
                     { type: 'comms', x: -96, z: -34 },
                     { type: 'sign', x: -62, z: -62, label: '火车站' }, { type: 'sign', x: 64, z: 56, label: '工厂', color: 0x705852 },
+                    { type: 'watchtower', x: -22, z: 22, rotation: 0.4 }, { type: 'watchtower', x: 24, z: -22, rotation: -0.4 },
+                    { type: 'watchtower', x: -40, z: 40, rotation: 1.0 }, { type: 'watchtower', x: 40, z: -40, rotation: -1.0 },
+                    { type: 'sniperNest', x: -8, z: 10, rotation: 0.3 }, { type: 'sniperNest', x: 10, z: -8, rotation: -0.3 },
+                    { type: 'sniperNest', x: -58, z: -54, rotation: 0.7 }, { type: 'sniperNest', x: 58, z: 54, rotation: -0.7 },
+                    { type: 'industrial', x: -76, z: -48, rotation: 0.3 },
                 ],
             },
             vehicleSpawns: [

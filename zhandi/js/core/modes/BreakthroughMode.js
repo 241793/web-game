@@ -85,14 +85,25 @@ export class BreakthroughMode extends GameMode {
 
     onStrategicObjectiveDestroyed(obj, team) {
         if (team === this.attackerTeam) {
+            // 攻方摧毁战略目标：加时 + 增援 + 当前扇区据点解锁加速
             this.matchTimer = Math.min(this._maxMatchDuration, this.matchTimer + (this.cfg.objectiveTimeBonus || 60));
             this.teamTickets[this.attackerTeam] = Math.min(
                 this.cfg.startingTickets + (this.cfg.ticketReserveCap || 20),
                 this.teamTickets[this.attackerTeam] + (this.cfg.objectiveTicketBonus || 10)
             );
-            if (this.game.hud) {
-                this.game.hud.showNotification(`战略目标摧毁！攻方获得增援与加时`, 3);
+            // 当前扇区据点占领进度推进 25%（攻方压力反馈）
+            for (const cp of this.getCurrentSectorPoints()) {
+                if (cp && cp.team !== this.attackerTeam) {
+                    cp.captureProgress = Math.min(100, (cp.captureProgress || 0) + 25);
+                    cp.capturingTeam = this.attackerTeam;
+                }
             }
+            if (this.game.hud) {
+                this.game.hud.showNotification(`战略目标摧毁！攻方获得增援、加时与扇区推进`, 3);
+            }
+        } else if (team === this.defenderTeam) {
+            // 守方摧毁战略目标（极少见，但保留对称）：扣除攻方少量票数
+            this.teamTickets[this.attackerTeam] = Math.max(0, this.teamTickets[this.attackerTeam] - 5);
         }
     }
 

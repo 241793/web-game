@@ -2,6 +2,26 @@ import * as THREE from 'three';
 
 const _textureCache = new Map();
 const _materialCache = new Map();
+const _MAX_TEXTURE_CACHE = 160;
+const _MAX_MATERIAL_CACHE = 320;
+
+// 带容量上限的缓存写入：超出时淘汰最旧条目，避免共享资源无界增长
+function _boundedSet(map, key, value, max) {
+    map.set(key, value);
+    if (map.size > max) {
+        const oldest = map.keys().next().value;
+        if (oldest !== undefined) map.delete(oldest);
+    }
+}
+
+export function getResourceStats() {
+    return {
+        textures: _textureCache.size,
+        materials: _materialCache.size,
+        maxTextures: _MAX_TEXTURE_CACHE,
+        maxMaterials: _MAX_MATERIAL_CACHE,
+    };
+}
 
 function _hexToRgb(hex) {
     const n = Number(hex) >>> 0;
@@ -367,7 +387,7 @@ export function createProceduralTexture(kind, options = {}) {
     texture.needsUpdate = true;
     texture.repeat.set(repeatX, repeatY);
 
-    _textureCache.set(key, texture);
+    _boundedSet(_textureCache, key, texture, _MAX_TEXTURE_CACHE);
     return texture;
 }
 
@@ -453,6 +473,6 @@ export function createProceduralMaterial(kind, options = {}, materialOptions = {
     }
     const material = new THREE.MeshStandardMaterial(params);
     material.userData.sharedProcedural = true;
-    _materialCache.set(materialKey, material);
+    _boundedSet(_materialCache, materialKey, material, _MAX_MATERIAL_CACHE);
     return material;
 }

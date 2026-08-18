@@ -1,4 +1,4 @@
-import { CONFIG } from '../config.js?v=20260811.1';
+import { CONFIG } from '../config.js?v=20260812.1';
 
 const MISSION_LABELS = {
     attack: '限时强攻',
@@ -454,12 +454,25 @@ export class BattlefieldDirector {
         if (!this.mission) return false;
         if (context.missionId === this.mission.id) return true;
         const target = this.mission.target;
-        if (context.target === target || context.capturePoint === target) return true;
-        if (this.mission.type === 'elimination') return kind === 'kill' || kind === 'assist' || kind === 'spotAssist';
-        if (this.mission.type === 'supply') {
-            return kind === 'support' && context.target === target;
+        const sameTarget = context.target === target || context.capturePoint === target;
+        switch (this.mission.type) {
+            case 'attack':
+            case 'defend':
+                // 仅承认对当前任务据点的占领/防守贡献
+                return (kind === 'capture' || kind === 'kill' || kind === 'assist' || kind === 'spotAssist')
+                    && sameTarget;
+            case 'vehicle':
+            case 'objective':
+                // 仅承认对当前任务载具/战略目标的伤害与击杀链
+                return kind === 'kill' || kind === 'assist' || kind === 'spotAssist' || sameTarget;
+            case 'elimination':
+                return kind === 'kill' || kind === 'assist' || kind === 'spotAssist';
+            case 'supply':
+                // 仅承认对当前任务空投的争夺贡献（抢到空投）
+                return kind === 'support' && context.target === target;
+            default:
+                return false;
         }
-        return false;
     }
 
     _trackPlayerParticipation() {
