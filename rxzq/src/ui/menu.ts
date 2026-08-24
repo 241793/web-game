@@ -19,7 +19,7 @@ export interface MatchConfig {
   aiLevel: 0 | 1 | 2;
   goldenGoal: boolean;
   training: boolean;
-  trainingDrill?: 'free' | 'pass' | 'tackle' | 'special';
+  trainingDrill?: 'free' | 'pass' | 'tackle' | 'special' | 'keeper' | 'solo';
   ruleset?: Ruleset;
   weather?: Weather | 'random';
   halfDuration?: 60 | 90 | 120;
@@ -39,7 +39,8 @@ export interface OnlineConfig {
 export class Menu {
   root: HTMLDivElement;
   onStart: (cfg: MatchConfig) => void = () => {};
-  onOnline: (create: boolean, team: string, code: string) => void = () => {};
+  onOnline: (create: boolean, team: string, code: string, nickname: string,
+    opts?: { halfDuration?: number; bestOf?: 1 | 3 }) => void = () => {};
   onOnlineCancel: () => void = () => {};
 
   constructor(parent: HTMLElement) {
@@ -47,7 +48,7 @@ export class Menu {
     this.root.style.cssText = `position:absolute;inset:0;background:
       radial-gradient(ellipse at 50% 30%, #1a2a4a 0%, #0a0f1e 70%);
       color:#fff;font-family:"Courier New","SimHei",monospace;display:flex;flex-direction:column;
-      align-items:center;justify-content:center;gap:2vh;overflow:auto;`;
+      align-items:center;justify-content:flex-start;gap:2vh;overflow-y:auto;overflow-x:hidden;`;
     // 动态背景:飘动的像素足球与流星线条(纯 CSS 动画)
     const styleEl = document.createElement('style');
     styleEl.textContent = `
@@ -77,7 +78,7 @@ export class Menu {
     }
     this.root.appendChild(bg);
     this.content = document.createElement('div');
-    this.content.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vh;width:100%;';
+    this.content.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:2vh;width:100%;min-height:100%;padding:4vh 12px;box-sizing:border-box;';
     this.root.appendChild(this.content);
     parent.appendChild(this.root);
     this.showTitle();
@@ -139,10 +140,15 @@ export class Menu {
     this.mkBtn('联机对战  ONLINE (Beta)', true, () => this.showOnline(), '#c03df5');
 
     const hint = document.createElement('div');
-    hint.innerHTML = `键盘: 方向键/WASD 移动 · J/Z 传球(铲球) · K/X 射门 · L/C/Shift 冲刺 · I/空格 跳跃 · Q/U 过人<br>
-      手柄: 左摇杆移动 · X 传球 · B 射门 · Y 冲刺 · A 跳跃 · RB 过人 · Start 暂停<br>
+    hint.innerHTML = `键盘: 方向键/WASD 移动 · J/Z 传球/要球/铲球 · K/X 射门(按住蓄力,蓄力中可慢移瞄准) · L/C/Shift 冲刺 · I/空格 跳跃 · Q/U 过人<br>
+      手柄: 左摇杆移动 · X 传球/要球/铲球 · B 射门 · Y 冲刺 · A 跳跃 · RB 过人 · Start 暂停<br>
+      连招: 冲刺+传球=低平快传 · 冲刺+射门=强力抽射 · 冲刺+跳=鱼跃冲顶 · 假射后立刻过人=假射真扣<br>
+      花式过人: 双击过人键=彩虹过人 · 过人键+跳=牛尾巴 · 静止按过人键=油炸丸子<br>
+      　　　　 拉后方向+过人键=马赛回旋 · 过人键+冲刺=踩单车 · 移动中过人键=基础变向<br>
+      射门变体: 蓄力中推方向=朝该方向踢 · 过人键+射门=吊射 · 蓄力+冲刺=贴地斩<br>
       触屏: 虚拟摇杆 + 右侧传射/冲跳/过人按键<br>
-      金圈标记固定操控的中场核心,门将模式则整场固定操控门将<br>
+      金圈标记整场固定操控的中场核心(门将模式则固定门将),传球与定位球均不切换操控<br>
+      队友持球时按传球键 = 要球,配合方向键可要前方空间球<br>
       能量槽积满后 跳跃+射门 = 必杀射门!传球与铲球可积攒能量`;
     hint.style.cssText = 'font-size:clamp(10px,1.8vw,14px);opacity:.7;text-align:center;line-height:1.8;margin-top:3vh;';
     this.content.appendChild(hint);
@@ -514,11 +520,28 @@ export class Menu {
     this.content.appendChild(wrap);
   }
 
-  // ---------- 联机对战 ----------
+  // ---------- 联机对战(Dreamin 纯中继,无需自建服务器) ----------
   showOnline() {
     this.clear();
-    this.heading('联机对战 (Beta)', '同一服务器下:一人创建房间获得房间码,另一人输入房间码加入');
+    this.heading('联机对战 (Beta)', '一人创建房间获得房间码,朋友输入房间码加入 · 走 Dreamin 云端中继');
     let myTeam = TEAMS[0].id;
+    const savedNick = localStorage.getItem('nk-nick') || '球员' + Math.floor(Math.random() * 1000);
+
+    // 昵称
+    const nickRow = document.createElement('div');
+    nickRow.style.cssText = 'display:flex;gap:10px;align-items:center;';
+    const nickLabel = document.createElement('div');
+    nickLabel.textContent = '昵称';
+    nickLabel.style.cssText = 'font-size:15px;opacity:.8;';
+    const nickInput = document.createElement('input');
+    nickInput.value = savedNick;
+    nickInput.maxLength = 12;
+    nickInput.style.cssText = `width:160px;padding:8px;font-size:16px;text-align:center;
+      background:#0d1428;border:2px solid #3dd5f5;color:#fff;font-family:inherit;outline:none;`;
+    nickInput.oninput = () => localStorage.setItem('nk-nick', nickInput.value.trim() || savedNick);
+    nickRow.appendChild(nickLabel);
+    nickRow.appendChild(nickInput);
+    this.content.appendChild(nickRow);
 
     // 队伍横向选择
     const teamRow = document.createElement('div');
@@ -540,7 +563,52 @@ export class Menu {
     }
     this.content.appendChild(teamRow);
 
-    this.mkBtn('创建房间(主机)', true, () => this.onOnline(true, myTeam, ''), '#c03df5');
+    // 比赛设置(创建方生效,经握手同步给客机):半场时长 + 场次
+    let halfDuration: 60 | 90 | 120 = 90;
+    let bestOf: 1 | 3 = 1;
+    const optRow = document.createElement('div');
+    optRow.style.cssText = 'display:flex;gap:18px;flex-wrap:wrap;justify-content:center;font-size:12px;';
+    const mkOpts = <T extends string | number>(
+      label: string, values: readonly { value: T; text: string }[],
+      current: () => T, set: (v: T) => void,
+    ) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+      const name = document.createElement('span');
+      name.textContent = label;
+      name.style.cssText = 'color:#d9c28d;';
+      row.appendChild(name);
+      const chips2: HTMLDivElement[] = [];
+      values.forEach(item => {
+        const chip = document.createElement('div');
+        chip.textContent = item.text;
+        chip.style.cssText = `padding:4px 10px;border:1px solid ${item.value === current() ? '#f5d33d' : '#59616d'};cursor:pointer;background:#080d16aa;`;
+        chip.onclick = () => {
+          set(item.value);
+          chips2.forEach((c, i) => (c.style.borderColor = values[i].value === current() ? '#f5d33d' : '#59616d'));
+          sfx.menuMove();
+        };
+        chips2.push(chip); row.appendChild(chip);
+      });
+      return row;
+    };
+    optRow.appendChild(mkOpts('时长', [
+      { value: 60, text: '60秒' }, { value: 90, text: '90秒' }, { value: 120, text: '120秒' },
+    ] as const, () => halfDuration, v => { halfDuration = v; }));
+    optRow.appendChild(mkOpts('场次', [
+      { value: 1, text: '单场' }, { value: 3, text: '三局两胜' },
+    ] as const, () => bestOf, v => { bestOf = v; }));
+    this.content.appendChild(optRow);
+    const setTip = document.createElement('div');
+    setTip.textContent = '比赛设置由创建房间的玩家决定';
+    setTip.style.cssText = 'font-size:11px;opacity:.45;';
+    this.content.appendChild(setTip);
+
+    const nickOf = () => (localStorage.getItem('nk-nick') || savedNick).slice(0, 24);
+    // 房间码:a-z0-9- 红线,4 位数字 → 规范化为 n-XXXX
+    const mkCode = () => String(Math.floor(1000 + Math.random() * 9000));
+    this.mkBtn('创建房间(主机)', true,
+      () => this.onOnline(true, myTeam, mkCode(), nickOf(), { halfDuration, bestOf }), '#c03df5');
 
     const joinRow = document.createElement('div');
     joinRow.style.cssText = 'display:flex;gap:10px;align-items:center;';
@@ -553,14 +621,17 @@ export class Menu {
     joinBtn.textContent = '加入房间';
     joinBtn.style.cssText = 'padding:9px 22px;border:2px solid #c03df5;cursor:pointer;font-size:16px;background:#d83a2a33;';
     joinBtn.onclick = () => {
-      if (codeInput.value.length === 4) { sfx.menuOk(); this.onOnline(false, myTeam, codeInput.value); }
+      if (codeInput.value.length === 4) {
+        sfx.menuOk();
+        this.onOnline(false, myTeam, codeInput.value, nickOf());
+      }
     };
     joinRow.appendChild(codeInput);
     joinRow.appendChild(joinBtn);
     this.content.appendChild(joinRow);
 
     const tip = document.createElement('div');
-    tip.innerHTML = '需先启动服务器: <b>node server/server.mjs</b>(默认 ws://localhost:8890,可用 ?server=ws://IP:8890 指定)';
+    tip.innerHTML = '无需自建服务器:联机经 <b>ai.dreamin.cn</b> 云端中继,双方联网即可对战<br>把创建后显示的 4 位房间码告诉朋友即可加入';
     tip.style.cssText = 'font-size:12px;opacity:.55;margin-top:8px;text-align:center;line-height:1.8;';
     this.content.appendChild(tip);
     this.mkBack(() => { this.onOnlineCancel(); this.showTitle(); });
@@ -583,13 +654,15 @@ export class Menu {
     this.clear();
     this.heading('训练场', '先选训练项目,再选你的队伍(能量恒满 · 不计时 · R 键重置)');
 
-    const drills: { id: 'free' | 'pass' | 'tackle' | 'special'; label: string; desc: string; color: string }[] = [
+    const drills: { id: 'free' | 'pass' | 'tackle' | 'special' | 'keeper' | 'solo'; label: string; desc: string; color: string }[] = [
       { id: 'free', label: '自由练习', desc: '任意踢球 · 熟悉操控', color: '#3dd5f5' },
+      { id: 'solo', label: '单人练习场', desc: '全场只留你 · 带控制台', color: '#f5d33d' },
       { id: 'pass', label: '连续传球', desc: '连传 6 次不丢球', color: '#3df58a' },
       { id: 'tackle', label: '铲断抢球', desc: '铲下对手 3 次球权', color: '#f5a63d' },
       { id: 'special', label: '必杀射门', desc: '跳跃必杀射正 2 次', color: '#f53d5a' },
+      { id: 'keeper', label: '扑救特训', desc: '操控门将扑出 5 脚射门', color: '#c03df5' },
     ];
-    let picked: 'free' | 'pass' | 'tackle' | 'special' = 'free';
+    let picked: 'free' | 'pass' | 'tackle' | 'special' | 'keeper' | 'solo' = 'free';
 
     const pickRow = document.createElement('div');
     pickRow.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;max-width:720px;width:100%;';

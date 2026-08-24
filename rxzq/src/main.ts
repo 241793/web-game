@@ -4,7 +4,7 @@ import { GameScene } from './render/scene';
 import { Input } from './core/input';
 import { Hud } from './ui/hud';
 import { Menu, MatchConfig } from './ui/menu';
-import { NetClient, emptyInput } from './net/client';
+import { DreaminNet } from './net/dreamin';
 import { TouchControls } from './ui/touch';
 import { teamById } from './core/teams';
 import { sfx } from './audio/sfx';
@@ -13,6 +13,7 @@ import { advance as tourAdvance } from './game/tournament';
 import { showStatsPanel, StatsPanelHandle } from './ui/statsPanel';
 import { PauseOverlay } from './ui/pause';
 import { buildRoster, grantXp } from './game/progress';
+import { showTrainingConsole, TrainingConsoleHandle } from './ui/trainingConsole';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const uiRoot = document.getElementById('ui-root') as HTMLDivElement;
@@ -26,10 +27,11 @@ let scene: GameScene | null = null;
 let hud: Hud | null = null;
 let pause: PauseOverlay | null = null;
 let activeCfg: MatchConfig | null = null;
-let net: NetClient | null = null;   // 联机会话(null=单机)
+let net: DreaminNet | null = null;   // 联机会话(null=单机)
 let netRole: 'host' | 'guest' = 'host';
 let sessionId = 0;
 let statsPanel: StatsPanelHandle | null = null;
+let trainingConsole: TrainingConsoleHandle | null = null;
 const timers = new Set<number>();
 let lastT = performance.now();
 
@@ -48,6 +50,8 @@ function invalidateSession() {
   timers.clear();
   statsPanel?.dismiss();
   statsPanel = null;
+  trainingConsole?.destroy();
+  trainingConsole = null;
 }
 
 // 暂停层:跨比赛复用,回调读取当前 match/hud/scene
@@ -79,7 +83,6 @@ menu.onStart = (cfg) => {
   match = new Match(buildRoster(cfg.teamA), teamById(cfg.teamB));
   match.humanTeam = 0;
   match.controlledIdx[0] = cfg.playAsKeeper ? 0 : 3;
-  match.controlLocked[0] = !!cfg.playAsKeeper;
   match.aiLevel = cfg.aiLevel;
   match.goldenGoal = cfg.goldenGoal;
   match.training = cfg.training;
@@ -89,6 +92,9 @@ menu.onStart = (cfg) => {
   if (cfg.training) {
     match.trainingDrill = cfg.trainingDrill ?? 'free';
     match.setupTrainingDrill();
+    if (match.trainingDrill === 'solo') {
+      trainingConsole = showTrainingConsole(uiRoot, match, text => hud?.banner(text, '#3dd5f5', 0.8));
+    }
   }
   if (!cfg.training) {
     if (!cfg.weather || cfg.weather === 'random') match.rollWeather();
@@ -130,6 +136,24 @@ function endMatch() {
   const localTeam = m.humanTeam >= 0 ? m.humanTeam : 0;
   const win = winner === localTeam;
 
+  // 联机三局两胜:单局结束 → 计入大比分,未分胜负则自动开下一局
+  if (net && netBestOf === 3 && winner >= 0) {
+    seriesWins[winner as 0 | 1]++;
+    const done = seriesWins[0] === 2 || seriesWins[1] === 2;
+    currentHud.banner(
+      done
+        ? `系列赛结束 ${seriesWins[0]}-${seriesWins[1]} · ${winner === localTeam ? '你赢了!' : '你输了'}`
+        : `本局 ${s0}-${s1} · 大比分 ${seriesWins[0]}-${seriesWins[1]}`,
+      winner === localTeam ? '#f5d33d' : '#8899aa', 2.6,
+    );
+    later(() => {
+      if (match !== m || hud !== currentHud) return;
+      if (done) backToMenu();
+      else { scene?.dispose(); startNetMatch(); }
+    }, 2600, currentSession);
+    return;
+  }
+
   const camp = activeCfg?.campaign;
   if (camp) {
     if (win) { camp.stage++; camp.wins++; }
@@ -169,31 +193,53 @@ function endMatch() {
   }, 2100, currentSession);
 }
 
-// ---------- 联机 ----------
-function serverUrl() {
-  const q = new URLSearchParams(location.search).get('server');
-  return q || 'ws://localhost:8890';
+// ---------- 联机(Dreamin 纯中继,无需自建服务器) ----------
+let netHalfDuration = 90;   // 创建方设置,经 hello 握手同步
+let netBestOf: 1 | 3 = 1;
+let seriesWins: [number, number] = [0, 0];   // 三局两胜计分(按队伍索引)
+let netStartInfo: { role: 'host' | 'guest'; teamA: string; teamB: string; myNick: string; oppNick: string } | null = null;
+
+function startNetMatch() {
+  const s = netStartInfo;
+  if (!s) return;
+  menu.hide();
+  touch.show(true);
+  activeCfg = { teamA: s.teamA, teamB: s.teamB, aiLevel: 1, goldenGoal: true, training: false, ruleset: 'arcade', weather: 'random' };
+  match = new Match(teamById(s.teamA), teamById(s.teamB));
+  match.humans = [0, 1];
+  match.humanTeam = s.role === 'host' ? 0 : 1;
+  match.goldenGoal = true;
+  match.ruleset = 'arcade';
+  match.halfDuration = netHalfDuration;
+  match.rollWeather();
+  scene = new GameScene(canvas, match);
+  // 联机:双方受控球员头顶显示昵称名牌
+  scene.nameTags = s.role === 'host'
+    ? [{ team: 0, nick: s.myNick }, { team: 1, nick: s.oppNick }]
+    : [{ team: 0, nick: s.oppNick }, { team: 1, nick: s.myNick }];
+  hud = new Hud(uiRoot, match);
+  if (netBestOf === 3 && (seriesWins[0] + seriesWins[1]) > 0) {
+    hud.banner(`第 ${seriesWins[0] + seriesWins[1] + 1} 局 · 大比分 ${seriesWins[0]}-${seriesWins[1]}`, '#c03df5', 2);
+  } else {
+    hud.banner(netBestOf === 3 ? '三局两胜 · 第 1 局开始!' : '联机对战开始!', '#c03df5', 2);
+  }
 }
 
-menu.onOnline = async (create, team, code) => {
+menu.onOnline = async (create, team, code, nickname, opts) => {
   invalidateSession();
   sfx.ensure();
-  net = new NetClient();
+  net = new DreaminNet();
   const currentNet = net;
   const currentSession = sessionId;
-  try {
-    await currentNet.connect(serverUrl());
-    if (net !== currentNet) {
-      currentNet.close();
-      return;
-    }
-  } catch {
+  currentNet.onError = msg => {
     if (net !== currentNet) return;
-    alert('无法连接服务器,请先运行: node server/server.mjs');
-    net = null;
-    return;
-  }
-  currentNet.onError = msg => { if (net === currentNet) alert(msg); };
+    alert(msg);
+    if (!match) {   // 未开局时出错 → 回菜单
+      currentNet.close();
+      net = null;
+      menu.showTitle();
+    }
+  };
   currentNet.onCreated = c => {
     if (net !== currentNet) return;
     menu.showWaiting(c, () => {
@@ -213,27 +259,32 @@ menu.onOnline = async (create, team, code) => {
       backToMenu();
     }, 2000, currentSession);
   };
+  currentNet.onDisconnected = () => {
+    if (net !== currentNet || !hud) return;
+    hud.banner('连接中断,重连中…', '#f5a63d', 2.5);
+  };
   currentNet.onStart = s => {
     if (net !== currentNet) return;
     netRole = s.role;
-    menu.hide();
-    touch.show(true);
+    netHalfDuration = s.halfDuration;
+    netBestOf = s.bestOf;
+    seriesWins = [0, 0];
     // 联机统一规则:主机=0 队(左),客机=1 队(右);双方都固定操控中场核心
     const teamA = s.role === 'host' ? s.myTeam : s.oppTeam;
     const teamB = s.role === 'host' ? s.oppTeam : s.myTeam;
-    activeCfg = { teamA, teamB, aiLevel: 1, goldenGoal: true, training: false, ruleset: 'arcade', weather: 'random' };
-    match = new Match(teamById(teamA), teamById(teamB));
-    match.humans = [0, 1];
-    match.humanTeam = s.role === 'host' ? 0 : 1;  // 本地视角(镜头/指示环)
-    match.goldenGoal = true;
-    match.ruleset = 'arcade';
-    match.rollWeather();
-    scene = new GameScene(canvas, match);
-    hud = new Hud(uiRoot, match);
-    hud.banner('联机对战开始!', '#c03df5', 2);
+    netStartInfo = { role: s.role, teamA, teamB, myNick: s.myNick, oppNick: s.oppNick };
+    startNetMatch();
   };
-  if (create) currentNet.create(team);
-  else currentNet.join(code, team);
+  try {
+    await currentNet.connect(nickname, create, code, team,
+      create ? { halfDuration: opts?.halfDuration ?? 90, bestOf: opts?.bestOf ?? 1 } : undefined);
+  } catch (e: any) {
+    if (net !== currentNet) return;
+    alert('联机连接失败:' + (e?.message ?? e));
+    currentNet.close();
+    net = null;
+    menu.showTitle();
+  }
 };
 
 // ESC 暂停/继续 · R 训练重置
@@ -295,18 +346,25 @@ function loop() {
           case 'kick': sfx.kick(); break;
           case 'bounce': sfx.bounce(); break;
           case 'jump': sfx.jump(); break;
-          case 'dribble': sfx.dribble(); break;
+          case 'dribble': {
+            sfx.dribble();
+            // 花式招式专属音效与横幅
+            if (e.trick === 'rainbow') { sfx.rainbow(); hud.banner('彩虹过人!', '#f5d33d', 0.6); }
+            else if (e.trick === 'elastico') { sfx.elastico(); hud.banner('牛尾巴!', '#3dd5f5', 0.6); }
+            else if (e.trick === 'croqueta') { sfx.croqueta(); hud.banner('油炸丸子!', '#ffffff', 0.6); }
+            break;
+          }
           case 'dribbleWin': sfx.dribbleWin(); hud.banner('过人!', '#3df58a', 0.8); break;
           case 'dribbleFail': sfx.tackle(); break;
           case 'fakeShot': sfx.fakeShot(); break;
           case 'tackle': sfx.tackle(); break;
           case 'collide': sfx.collide(); break;
           case 'knockdown': sfx.knockdown(); break;
-          case 'post': sfx.post(); break;
-          case 'save': sfx.save(); break;
+          case 'post': sfx.post(); sfx.crowdExcite(0.3); break;
+          case 'save': sfx.save(); sfx.crowdExcite(0.5); break;
           case 'offside': sfx.whistle(); hud.banner('越 位', '#f5d33d', 1.2); break;
-          case 'foul': sfx.whistle(); hud.banner('犯 规 · 任意球', '#efb24d', 1.2); break;
-          case 'controlSwitch': sfx.switchPlayer(); break;
+          case 'foul': sfx.whistle(); hud.banner('干扰门将 · 任意球', '#efb24d', 1.2); break;
+          case 'callForPass': sfx.callForPass(); break;
           case 'tactic':
             sfx.tactic();
             if (e.team === match.humanTeam) hud.banner(`战术 · ${match.tacticLabel(e.team)}`, '#d9b45b', 0.8);
@@ -314,10 +372,12 @@ function loop() {
           case 'whistle': sfx.whistle(); break;
           case 'special':
             sfx.special();
+            sfx.crowdExcite(0.5);
             if (e.special) hud.banner(`必杀!${e.special.name}!!`, '#' + e.special.color.toString(16).padStart(6, '0'), 1.6);
             break;
           case 'goal':
             sfx.goal();
+            sfx.crowdExcite(1);
             hud.banner(match.goldenGoal && match.half >= 3 ? '金球绝杀!!' : 'GOAL!!!', '#f5d33d', 2.4);
             break;
         }
@@ -336,6 +396,8 @@ function loop() {
       }
 
       scene.update(dt);
+      sfx.updateCrowd(dt);
+      hud.setDashHeld(input.state.dash);
       hud.update(dt);
     }
   }

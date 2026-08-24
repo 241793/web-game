@@ -41,7 +41,7 @@ export function showStatsPanel(parent: HTMLElement, m: Match, onClose: () => voi
       ${row('传球 (成功/尝试)', `${sa.passCompleted}/${sa.passAttempts}`, `${sb.passCompleted}/${sb.passAttempts}`)}
       ${row('拦截', sa.interceptions, sb.interceptions)}
       ${row('铲球 (成功/尝试)', `${sa.tackles}/${sa.tackleAttempts}`, `${sb.tackles}/${sb.tackleAttempts}`)}
-      ${m.ruleset === 'classic' ? row('犯规 / 越位', `${sa.fouls} / ${sa.offsides}`, `${sb.fouls} / ${sb.offsides}`) : ''}
+      ${row('犯规 / 越位', `${sa.fouls} / ${sa.offsides}`, `${sb.fouls} / ${sb.offsides}`)}
       ${row('击中门框', sa.woodwork, sb.woodwork)}
       ${row('必杀射门', sa.specials, sb.specials)}
       ${row('门将扑救', sa.saves, sb.saves)}

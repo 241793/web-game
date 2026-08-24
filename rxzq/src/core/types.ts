@@ -10,12 +10,14 @@ export type SpecialShotId =
   | 'serpent'     // 灵蛇游走
   | 'freeze'      // 寒冰冻结
   | 'luohan'      // 罗汉伏虎
-  | 'sweep';      // 扫堂腿
+  | 'sweep'       // 扫堂腿
+  | 'eagle'       // 鹰击长空
+  | 'mirage';     // 沙漠幻影
 
 // 角色外观:未配置时由属性稳定推导,保证随机性不破坏辨识度
 export interface PlayerAppearance {
   build: 'slim' | 'medium' | 'heavy';   // 体型
-  hairStyle: 'short' | 'spiky' | 'long' | 'bald';
+  hairStyle: 'short' | 'spiky' | 'long' | 'bald' | 'mohawk' | 'ponytail' | 'curly' | 'buzz';
   face: 'normal' | 'smile' | 'frown';
 }
 
@@ -41,12 +43,13 @@ export interface TeamDef {
 
 export type PlayerState =
   | 'idle' | 'run' | 'dash' | 'dribble' | 'jump' | 'dive'
-  | 'slide' | 'tackle' | 'fallen' | 'kick' | 'headbutt';
+  | 'slide' | 'tackle' | 'fallen' | 'kick' | 'headbutt' | 'celebrate'
+  | 'celebrateSlide' | 'celebrateFly' | 'celebrateCradle';
 
 // 比赛中的即时战术。AI 会据此调整阵型纵深、压迫强度和传球风险。
 export type TacticalStyle = 'balanced' | 'attack' | 'defend';
 
-// 热血规则保留无犯规的街机节奏；竞技规则启用越位与危险铲球判罚。
+// 热血规则保留无犯规的街机节奏；竞技规则启用越位判罚。
 export type Ruleset = 'arcade' | 'classic';
 
 export type MatchPhase =

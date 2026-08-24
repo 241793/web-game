@@ -3,6 +3,8 @@ export class Sfx {
   ctx: AudioContext | null = null;
   master!: GainNode;
   crowdNode: AudioBufferSourceNode | null = null;
+  crowdGain: GainNode | null = null;
+  crowdExciteT = 0;          // 观众声兴奋倒计时(main 循环驱动)
   muted = false;
 
   ensure() {
@@ -55,7 +57,7 @@ export class Sfx {
     src.start(t0);
   }
 
-  // 持续观众白噪声(低音量氛围)
+  // 持续观众白噪声(低音量氛围,兴奋时可被 crowdExcite 拉高)
   private startCrowd() {
     if (!this.ctx) return;
     const len = this.ctx.sampleRate * 2;
@@ -73,6 +75,30 @@ export class Sfx {
     src.connect(g).connect(this.master);
     src.start();
     this.crowdNode = src;
+    this.crowdGain = g;
+  }
+
+  // 观众激励:level 0~1(0=射门小起伏 0.4=扑救 1=进球),拉高氛围声并叠欢呼脉冲
+  crowdExcite(level = 1) {
+    if (!this.ctx || !this.crowdGain) return;
+    this.crowdExciteT = Math.max(this.crowdExciteT, level >= 1 ? 3.2 : level >= 0.5 ? 1.6 : 0.8);
+    // 合成欢呼脉冲:宽带噪声 + 高频口哨感方波群
+    this.noise(level >= 1 ? 1.6 : 0.7, level >= 1 ? 0.3 : 0.16, level >= 1 ? 2600 : 2000);
+    const whistles = level >= 1 ? 5 : 3;
+    for (let i = 0; i < whistles; i++) {
+      this.tone('square', 1500 + Math.random() * 900, 0.16 + Math.random() * 0.2,
+        level >= 1 ? 0.06 : 0.035, 1800 + Math.random() * 600, Math.random() * (level >= 1 ? 1.1 : 0.45));
+    }
+  }
+
+  // 每帧驱动:兴奋期把观众声 gain 抬高,结束后平滑回落
+  updateCrowd(dt: number) {
+    if (!this.ctx || !this.crowdGain) return;
+    if (this.crowdExciteT > 0) this.crowdExciteT -= dt;
+    const target = this.muted ? 0 : this.crowdExciteT > 0 ? 0.22 : 0.09;
+    const cur = this.crowdGain.gain.value;
+    const next = cur + (target - cur) * Math.min(1, dt * 3);
+    if (Math.abs(next - cur) > 0.001) this.crowdGain.gain.value = next;
   }
 
   kick() { this.noise(0.08, 0.35, 900); this.tone('square', 180, 0.07, 0.15, 90); }
@@ -81,16 +107,28 @@ export class Sfx {
   bounce() { this.tone('triangle', 220, 0.08, 0.2, 120); }
   jump() { this.tone('square', 300, 0.12, 0.15, 620); }
   dribble() { this.noise(0.07, 0.18, 1500); this.tone('triangle', 360, 0.09, 0.12, 520); }
+  rainbow() {
+    // 彩虹过人:上行滑音 + 高音哨响
+    this.tone('sine', 320, 0.22, 0.16, 880);
+    this.tone('square', 1200, 0.1, 0.08, 1600, 0.12);
+  }
+  elastico() {
+    // 牛尾巴:双击节奏
+    this.tone('triangle', 520, 0.06, 0.14);
+    this.tone('triangle', 700, 0.07, 0.14, undefined, 0.08);
+  }
+  croqueta() {
+    // 油炸丸子:短促双触
+    this.tone('square', 440, 0.04, 0.11);
+    this.tone('square', 560, 0.045, 0.11, undefined, 0.05);
+  }
   dribbleWin() { this.tone('square', 520, 0.08, 0.16, 720); this.tone('square', 780, 0.12, 0.14, undefined, 0.06); }
   fakeShot() { this.noise(0.08, 0.2, 1800); this.tone('square', 200, 0.07, 0.12, 90); }
   tackle() { this.noise(0.15, 0.3, 500); }
   collide() { this.noise(0.12, 0.4, 600); this.tone('square', 90, 0.15, 0.3, 40); }
   post() { this.tone('square', 520, 0.3, 0.3, 500); }
   save() { this.noise(0.1, 0.3, 1000); this.tone('square', 200, 0.1, 0.2); }
-  switchPlayer() {
-    this.tone('sine', 520, 0.055, 0.1, 720);
-    this.tone('triangle', 780, 0.075, 0.08, undefined, 0.035);
-  }
+  callForPass() { this.tone('triangle', 880, 0.07, 0.1, 1040); }
   tactic() {
     // 短促铜锣感:低频正弦叠加带通噪声。
     this.tone('sine', 150, 0.34, 0.18, 92);

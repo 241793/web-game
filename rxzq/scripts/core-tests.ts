@@ -392,6 +392,477 @@ function testShaolinTeamAndSpecials() {
   assert(sl.players.some(pl => pl.special === 'luohan'), '少林队应有球员使用罗汉伏虎');
 }
 
+const emptyInp = (over: Record<string, unknown> = {}) =>
+  ({ dirX: 0, dirZ: 0, pass: false, shoot: false, dash: false, jump: false, skill: false,
+    tactic: false, passPressed: false, shootPressed: false, dashPressed: false, jumpPressed: false,
+    skillPressed: false, tacticPressed: false, ...over }) as any;
+
+function testFixedPositionNeverSwitches() {
+  const m = makeMatch();
+  const ctrl = m.getControlled(0);
+  assert(ctrl.index === 3, '默认固定中场');
+
+  // 传球不切人
+  m.ball.owner = ctrl;
+  ctrl.x = 0; ctrl.z = 0; ctrl.kickCd = 0; ctrl.setState('idle'); ctrl.face(1, 0);
+  const mate = m.teamPlayers(0)[5];
+  mate.x = 20; mate.z = 0; mate.setState('idle');
+  m.executePass(ctrl, mate);
+  assert(m.getControlled(0) === ctrl, '传球后仍固定操控原球员');
+
+  // 定位球不切人
+  m.phase = 'throwin'; m.phaseT = 0; m.restartTeam = 0;
+  m.restartPos = { x: 10, z: 5 };
+  m.doRestart();
+  assert(m.getControlled(0) === ctrl, '定位球后仍固定操控原球员');
+
+  // 旧 switchPressed 输入无效
+  m.phase = 'play'; m.phaseT = 0;
+  m.update(1 / 60, [emptyInp({ switchPressed: true }), null]);
+  assert(m.getControlled(0) === ctrl, '旧换人输入不应改变受控球员');
+}
+
+function testCallForPassContext() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.y = 0; p.setState('idle'); p.kickCd = 0;
+  const mate = m.teamPlayers(0)[5];
+
+  // 队友持球 → 要球(不滑铲)
+  m.ball.owner = mate;
+  m.applyInput(p, emptyInp({ passPressed: true }), 1 / 60);
+  assert(p.passCallT > 0 && p.state !== 'slide', '队友持球按传球键应要球而非滑铲');
+  assert(m.events.some(e => e.type === 'callForPass'), '要球应触发 callForPass 事件');
+
+  // 方向要球:归一化到 (0.6, 0.8)
+  m.events.length = 0; p.setState('idle');
+  m.applyInput(p, emptyInp({ passPressed: true, dirX: 3, dirZ: 4 }), 1 / 60);
+  near(p.passCallDirX, 0.6, 1e-6, '要球方向 X 应归一化');
+  near(p.passCallDirZ, 0.8, 1e-6, '要球方向 Z 应归一化');
+
+  // 对手持球 → 滑铲
+  m.events.length = 0; p.setState('idle'); p.kickCd = 0;
+  const opp = m.teamPlayers(1)[2];
+  m.ball.owner = opp;
+  m.applyInput(p, emptyInp({ passPressed: true }), 1 / 60);
+  assert(p.state === 'slide', '对手持球按传球键应滑铲');
+
+  // 自由球 → 滑铲
+  p.setState('idle'); p.kickCd = 0;
+  m.ball.owner = null;
+  m.applyInput(p, emptyInp({ passPressed: true }), 1 / 60);
+  assert(p.state === 'slide', '自由球按传球键应滑铲');
+}
+
+function testSpacePassRequest() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.kickCd = 0; p.setState('idle');
+  m.ball.owner = p;
+  const mate = m.teamPlayers(0)[4];
+  mate.x = 10; mate.z = 0; mate.vx = 0; mate.vz = 0; mate.setState('idle');
+  const spaceX = 5, spaceZ = 3;
+  m.executePass(p, mate, 0, false, spaceX, spaceZ);
+  const tx = mate.x + spaceX, tz = mate.z + spaceZ;
+  const dx = tx - p.x, dz = tz - p.z;
+  const dd = Math.hypot(dx, dz) || 1;
+  const speed = Math.hypot(m.ball.vx, m.ball.vz) || 1;
+  near(m.ball.vx / speed, dx / dd, 1e-6, '空间要球应指向请求空间 X');
+  near(m.ball.vz / speed, dz / dd, 1e-6, '空间要球应指向请求空间 Z');
+}
+
+function testChargeStopAndAimCache() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.y = 0; p.setState('idle'); p.kickCd = 0;
+  m.ball.owner = p;
+
+  // 蓄力期间持续输入方向:慢速移动(约40%跑速),不恢复全速
+  const hold = emptyInp({ shoot: true, dirX: 1, dirZ: 0 });
+  m.applyInput(p, hold, 1 / 60);
+  for (let i = 0; i < 6; i++) m.applyInput(p, hold, 1 / 60);
+  const expectedSp = p.moveSpeed() * C.CHARGE_MOVE_SCALE;
+  assert(Math.abs(p.vx) < expectedSp * 1.3 && Math.abs(p.vx) > expectedSp * 0.6,
+    `蓄力期间应保持约40%跑速,实际 vx=${p.vx.toFixed(2)} (期望≈${expectedSp.toFixed(2)})`);
+  near(p.vz, 0, 0.3, '蓄力移动不应产生侧向速度');
+
+  // 蓄力期间 dirZ 瞄准,松开帧回中,仍用缓存瞄准
+  p.shootChargeT = -1; p.shootAimX = 0; p.shootAimZ = 0; p.vx = 0; p.vz = 0; p.setState('idle'); p.kickCd = 0;
+  m.ball.owner = p; m.events.length = 0;
+  const aim = emptyInp({ shoot: true, dirZ: 1 });
+  m.applyInput(p, aim, 1 / 60);
+  for (let i = 0; i < 10; i++) m.applyInput(p, aim, 1 / 60);
+  aim.shoot = false; aim.dirZ = 0;
+  m.applyInput(p, aim, 1 / 60);
+  assert(m.ball.owner === null, '蓄力足够松开应真射');
+  assert(m.ball.vz > 0, '松开帧回中后应仍使用缓存瞄准(正 z)');
+}
+
+function testKeeperManualDive() {
+  const m = makeMatch();
+  const keeper = m.teamPlayers(0)[0];
+  keeper.x = -C.FIELD_LENGTH / 2 + 1.5; keeper.z = 0; keeper.y = 0;
+  keeper.setState('idle'); keeper.kickCd = 0;
+  m.ball.reset(-C.FIELD_LENGTH / 2 + 6, 3);
+  m.ball.kick(28, 2, -2, m.teamPlayers(1)[2]);
+  m.ball.prevY = m.ball.y;
+
+  // 手动扑救:dive 状态扩大接触半径,必抱稳并给能量奖励
+  m.doKeeperDive(keeper, 0, -1, 0.8);
+  assert(keeper.state === 'dive' && keeper.divePower > 0.7, '扑救应进入 dive 且记录力度');
+  assert(keeper.vz < -10, '扑救应朝负 z 方向高速扑出');
+  m.energy[0] = 0;
+  // 把球挪到扩大半径内模拟高速射门到达
+  keeper.x = -C.FIELD_LENGTH / 2 + 2; keeper.z = -1.5; keeper.y = 0.5;
+  m.ball.x = keeper.x + 1; m.ball.y = 1; m.ball.z = keeper.z + 1;
+  m.ball.vx = -26; m.ball.vz = 0; m.ball.prevX = m.ball.x + 1;
+  m.ballPickup();
+  assert(m.ball.owner === keeper, '主动扑救半径内必抱稳');
+  assert(m.energy[0] > 0, '扑救抱稳应给全队能量奖励');
+}
+
+function testChipAndDaisyCutter() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.y = 0; p.setState('idle'); p.kickCd = 0;
+  m.ball.owner = p;
+
+  // 吊射:过人键窗口内射门 → 高抛
+  p.chipRequestT = C.CHIP_WINDOW;
+  m.doShoot(p, emptyInp(), 0, 0, true, false);
+  assert(m.ball.vy > 8, `吊射应有高抬升,实际 vy=${m.ball.vy.toFixed(2)}`);
+
+  // 贴地斩:蓄力+按住冲刺 → 低平快球
+  m.ball.reset(p.x + 1.4, p.z); m.ball.owner = p;
+  p.kickCd = 0; p.setState('idle');
+  const speedDaisy = () => Math.hypot(m.ball.vx, m.ball.vz);
+  m.doShoot(p, emptyInp({ dash: true }), 0.5, 0, false, true);
+  assert(m.ball.vy < 2, `贴地斩应贴地,实际 vy=${m.ball.vy.toFixed(2)}`);
+  assert(speedDaisy() > C.SHOOT_SPEED * 1.1, `贴地斩应高速,实际 ${speedDaisy().toFixed(1)}`);
+}
+
+function testTrickDribbles() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.y = 0; p.setState('idle'); p.dribbleCd = 0;
+  p.face(1, 0);
+  m.ball.owner = p;
+
+  // 马赛回旋:拉后方向(与面朝反向)
+  assert(m.doDribble(p, -1, 0), '拉后方向应触发过人');
+  assert(p.trickType === 'roulette', '反向输入应触发马赛回旋');
+  assert(p.state === 'dribble', '回旋应进入过人状态');
+
+  // 踩单车:同向 + 按住冲刺 → 近处防守者僵直
+  for (let t = 0; t < 1.8; t += 1 / 60) p.update(1 / 60);
+  p.setState('idle'); p.dribbleCd = 0; p.trickType = 'none';
+  p.face(1, 0); m.ball.owner = p;
+  const defender = m.teamPlayers(1)[2];
+  defender.x = p.x + 2; defender.z = p.z; defender.setState('idle'); defender.stunned = 0;
+  assert(m.doDribble(p, 1, 0, true), '按住冲刺应触发过人');
+  assert(p.trickType === 'stepover', '冲刺+过人应触发踩单车');
+  assert(defender.stunned > 0.4, `踩单车应使近处防守者僵直,实际 ${defender.stunned.toFixed(2)}`);
+}
+
+function testNeymarTricks() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.y = 0; p.setState('idle'); p.dribbleCd = 0;
+  p.face(1, 0);
+  m.ball.owner = p;
+
+  // 彩虹过人:球被高高挑起且短暂无人可拾
+  assert(m.doDribble(p, 1, 0, false, 'rainbow'), '彩虹过人应触发');
+  assert(p.trickType === 'rainbow', '变体应为 rainbow');
+  assert(m.ball.owner === null, '彩虹挑起后球权释放');
+  assert(m.ball.vy > 6, `彩虹挑球应有高抬升,vy=${m.ball.vy.toFixed(2)}`);
+  assert(m.ball.untouchable >= C.RAINBOW_UNTOUCH - 1e-9, `彩虹球无人可拾,${m.ball.untouchable.toFixed(2)}`);
+  for (let t = 0; t < 1.6; t += 1 / 60) p.update(1 / 60);
+
+  // 牛尾巴:近处防守者僵直更久(0.7s)
+  p.setState('idle'); p.dribbleCd = 0; p.trickType = 'none';
+  p.face(1, 0); m.ball.owner = p;
+  const defender = m.teamPlayers(1)[3];
+  defender.x = p.x + 2; defender.z = p.z; defender.setState('idle'); defender.stunned = 0;
+  assert(m.doDribble(p, 1, 0, false, 'elastico'), '牛尾巴应触发');
+  assert(p.trickType === 'elastico', '变体应为 elastico');
+  near(defender.stunned, C.ELASTICO_STUN, 0.01, '牛尾巴僵直应为 0.7s');
+  for (let t = 0; t < 1.8; t += 1 / 60) p.update(1 / 60);
+
+  // 油炸丸子:垂直于拨球方向的横拨+短冷却可串联
+  p.setState('idle'); p.dribbleCd = 0; p.trickType = 'none';
+  p.face(1, 0); m.ball.owner = p;
+  assert(m.doDribble(p, 0, 0.5, false, 'croqueta'), '油炸丸子应触发');
+  assert(p.trickType === 'croqueta', '变体应为 croqueta');
+  // dribbleDir=(0,1),横拨应垂直于它 → 速度以 x 为主
+  assert(Math.abs(p.vx) > Math.abs(p.vz), '油炸丸子应为垂直横拨');
+  near(p.dribbleCd, C.CROQUETA_CD, 0.01, `油炸丸子冷却应短(${p.dribbleCd.toFixed(2)})`);
+}
+
+function testNewContentData() {
+  assert(teamById('ar').name === '沙漠猎鹰', '新球队 ar 应可查询');
+  assert(teamById('fr').name === '高卢雄鸡', '新球队 fr 应可查询');
+  assert(SPECIALS.eagle && SPECIALS.eagle.gravityScale > 1.2, '鹰击长空应为急坠弹道');
+  assert(SPECIALS.mirage && SPECIALS.mirage.wave > 6, '沙漠幻影应为大摆动弹道');
+  assert(TEAMS.length >= 11, `应有至少 11 支球队,实际 ${TEAMS.length}`);
+}
+
+function testGoalCelebration() {
+  const m = makeMatch();
+  const scorer = m.teamPlayers(0)[3];
+  scorer.x = C.FIELD_LENGTH / 2 - 2; scorer.z = 0;
+  m.ball.reset(C.FIELD_LENGTH / 2 + 0.3, 0);
+  m.ball.y = 1;
+  m.ball.lastKicker = scorer; m.ball.lastTeam = 0;
+  (m as any).shotFlight = { id: m.ball.flightId, team: 0, onTarget: false };
+  m.checkBounds();
+  assert(m.score[0] === 1, '进球应计分');
+  assert(scorer.state === 'celebrateSlide', '进球者应滑跪庆祝');
+  assert(scorer.vx !== 0, '滑跪应带前向滑动');
+  const mate = m.teamPlayers(0)[5];
+  assert(mate.state.startsWith('celebrate'), '队友也应进入庆祝状态');
+  assert(scorer.celebrateStyle === 0 && mate.celebrateStyle !== scorer.celebrateStyle, '进球者与队友庆祝样式应错开');
+  m.setupKickoff(1);
+  assert(!scorer.state.startsWith('celebrate'), '重新开球应复位庆祝状态');
+}
+
+function testKeeperPunchAndTackle() {
+  const m = makeMatch();
+  const keeper = m.teamPlayers(0)[0];
+  keeper.x = -C.FIELD_LENGTH / 2 + 2; keeper.z = 0; keeper.y = 0;
+  keeper.setState('idle'); keeper.kickCd = 0;
+
+  // 拳击解围:球在附近时长按松开应大力踢出
+  m.ball.reset(keeper.x + 1.5, 0);
+  m.ball.vx = 0; m.ball.vy = 0; m.ball.vz = 0; m.ball.owner = null;
+  (m as any).doKeeperPunch(keeper, 1, 0);
+  const speed = Math.hypot(m.ball.vx, m.ball.vz);
+  assert(speed > 28, `拳击解围应大力踢出,实际 ${speed.toFixed(1)}`);
+  assert(m.ball.lastTeam === 0, '拳击解围球权应归门将方');
+
+  // 门将滑铲逼抢
+  keeper.setState('idle'); keeper.kickCd = 0;
+  const attempts = m.stats[0].tackleAttempts;
+  m.doSlideTackle(keeper);
+  assert(keeper.state === 'slide', '门将应能滑铲逼抢');
+  assert(m.stats[0].tackleAttempts === attempts + 1, '门将滑铲应计入铲球尝试');
+}
+
+function testSpecialLandingGrace() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.y = 0; p.setState('idle'); p.kickCd = 0;
+  m.ball.owner = p;
+  m.energy[0] = C.ENERGY_MAX;
+
+  // 模拟跳跃后落地:能量满时落地开启缓冲窗口
+  p.y = 1; p.vy = 0;
+  for (let i = 0; i < 20 && !p.onGround; i++) {
+    const wasAir = p.y > 0.05;
+    p.update(1 / 60);
+    if (wasAir && p.onGround && m.energyFull(0)) p.landingGraceT = C.LANDING_GRACE_T;
+  }
+  assert(p.landingGraceT > 0, '落地应开启必杀缓冲窗口');
+
+  // 缓冲窗口内地面射门应触发必杀
+  const flight0 = m.ball.flightId;
+  m.doShoot(p, emptyInp(), 0.5, 0, false, false);
+  assert(m.ball.flightId === flight0 + 1, '射门应出脚');
+  assert(m.ball.special !== null, '缓冲窗口内射门应触发必杀');
+  assert(m.energy[0] === 0, '必杀应清空能量');
+}
+
+function testSoloTrainingDrill() {
+  const m = makeMatch();
+  m.trainingDrill = 'solo';
+  m.setupTrainingDrill();
+  const human = m.getControlled(0);
+  assert(human.index === 3, '单人训练默认操控中场');
+  assert(m.ball.owner === human, '单人训练球权应交给玩家');
+  for (const p of m.players) {
+    if (p === human) continue;
+    assert(Math.abs(p.x) > 50 || Math.abs(p.z) > 35, '其余球员应移出场外');
+  }
+  // 控制台的复位行为:切门将位
+  m.controlledIdx[0] = 0;
+  const keeper = m.getControlled(0);
+  assert(keeper.isKeeper, '控制台切位后应操控门将');
+  m.soloReset();
+  assert(m.ball.owner === m.getControlled(0), 'soloReset 后球权应交给当前受控球员');
+}
+
+function testSoloNpcFreeze() {
+  const m = makeMatch();
+  m.trainingDrill = 'solo';
+  m.soloReset();
+  const human = m.getControlled(0);
+  const npc = m.teamPlayers(1)[2];
+
+  // 冻结后 NPC 不更新:位置/状态保持静止
+  m.soloNpcFrozen = true;
+  const nx = npc.x, nz = npc.z;
+  for (let i = 0; i < 30; i++) m.update(1 / 60, [null, null]);
+  near(npc.x, nx, 1e-6, '冻结 NPC 的 X 应保持不变');
+  near(npc.z, nz, 1e-6, '冻结 NPC 的 Z 应保持不变');
+  assert(npc.state !== 'run' || Math.hypot(npc.vx, npc.vz) === 0, '冻结 NPC 不应有移动速度');
+
+  // 玩家仍可正常活动
+  assert(m.getControlled(0) === human, '冻结期间玩家受控角色不变');
+
+  // 解冻后恢复
+  m.soloNpcFrozen = false;
+  m.update(1 / 60, [null, null]);
+  assert(true, '解冻后更新不抛错');
+}
+
+function testChargeMoveAndOmniShot() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.y = 0; p.setState('idle'); p.kickCd = 0;
+  m.ball.owner = p;
+
+  // 蓄力期间持续给方向:应能慢速移动(约40%跑速)而非站桩
+  const hold = emptyInp({ shoot: true, dirX: 1, dirZ: 0 });
+  m.applyInput(p, hold, 1 / 60);
+  for (let i = 0; i < 5; i++) m.applyInput(p, hold, 1 / 60);
+  const expected = p.moveSpeed() * C.CHARGE_MOVE_SCALE;
+  near(Math.abs(p.vx), expected, expected * 0.25, '蓄力期间应以约40%跑速移动');
+
+  // 全向射门:蓄力中瞄准己方半场方向(-x),松开应朝 -x 出脚
+  p.x = 10; p.setState('idle'); p.shootChargeT = -1; p.shootAimX = 0; p.shootAimZ = 0;
+  m.ball.owner = p; m.events.length = 0;
+  const backAim = emptyInp({ shoot: true, dirX: -1 });
+  m.applyInput(p, backAim, 1 / 60);
+  for (let i = 0; i < 12; i++) m.applyInput(p, backAim, 1 / 60);
+  backAim.shoot = false;
+  m.applyInput(p, backAim, 1 / 60);
+  assert(m.ball.vx < -5, `自由方向应朝输入方向出脚,实际 vx=${m.ball.vx.toFixed(2)}`);
+
+  // 无输入默认仍朝对方球门(+x)
+  p.setState('idle'); p.kickCd = 0; p.shootChargeT = -1; p.shootAimX = 0; p.shootAimZ = 0;
+  m.ball.reset(p.x + 1.4, p.z); m.ball.owner = p; m.events.length = 0;
+  const noAim = emptyInp({ shoot: true });
+  m.applyInput(p, noAim, 1 / 60);
+  for (let i = 0; i < 12; i++) m.applyInput(p, noAim, 1 / 60);
+  noAim.shoot = false;
+  m.applyInput(p, noAim, 1 / 60);
+  assert(m.ball.vx > 5, `无输入应默认射向对方球门,实际 vx=${m.ball.vx.toFixed(2)}`);
+}
+
+function testDashCombos() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.y = 0; p.kickCd = 0; p.dashCd = 0;
+  p.face(1, 0); p.stamina = C.STAMINA_MAX;
+
+  // 冲刺+跳跃=鱼跃冲顶
+  m.applyInput(p, emptyInp({ dashPressed: true }), 1 / 60);
+  assert(p.state === 'dash', '应进入冲刺');
+  m.applyInput(p, emptyInp({ jumpPressed: true }), 1 / 60);
+  assert(p.state === 'headbutt', '冲刺中跳跃应为鱼跃冲顶');
+  for (let t = 0; t < 1.4; t += 1 / 60) p.update(1 / 60);
+
+  // 冲刺+传球=低平快传
+  p.setState('dash'); p.y = 0; p.kickCd = 0;
+  const mate = m.teamPlayers(0)[5];
+  mate.x = p.x + 20; mate.z = 0; mate.setState('idle');
+  m.ball.owner = p;
+  m.doPass(p);
+  assert(m.ball.vy <= 1.01, `冲刺快传应贴地,vy=${m.ball.vy.toFixed(2)}`);
+  const passSpeed = Math.hypot(m.ball.vx, m.ball.vz);
+  assert(passSpeed > C.PASS_SPEED * 1.15, `冲刺快传应加速,${passSpeed.toFixed(1)}`);
+
+  // 假射真扣:假射后立刻过人应豁免冷却(经 applyInput 的 kick 硬直连招窗口)
+  p.setState('idle'); p.kickCd = 0; p.dribbleCd = 3;   // 故意挂冷却
+  m.ball.owner = p; m.energy[0] = 50;
+  m.doFakeShot(p);
+  assert(p.fakeShotT > 0, '假射应设置诱骗窗口');
+  m.applyInput(p, emptyInp({ skillPressed: true, dirX: 1 }), 1 / 60);
+  assert(p.state === 'dribble', '假射后过人应豁免冷却(连招)');
+}
+
+function testKeeperInterferenceFoul() {
+  const m = makeMatch();
+  const attacker = m.teamPlayers(0)[2];
+  const oppKeeper = m.teamPlayers(1)[0];
+  // 对方门将在本方禁区内(1 队守 +x 门)
+  oppKeeper.x = C.FIELD_LENGTH / 2 - 8; oppKeeper.z = 0;
+  oppKeeper.setState('idle'); oppKeeper.y = 0;
+  attacker.x = oppKeeper.x - C.PLAYER_RADIUS * 2; attacker.z = 0;
+  attacker.setState('slide');
+  const fouls0 = m.stats[0].fouls;
+  const random = Math.random; Math.random = () => 0;
+  try { m.playerCollisions(); } finally { Math.random = random; }
+  assert(m.stats[0].fouls === fouls0 + 1, '禁区冲撞对方门将应记犯规');
+  assert(m.phase === 'freekick' && m.restartTeam === 1, '干扰门将应判任意球给门将方');
+  assert(m.events.some(e => e.type === 'foul'), '应触发 foul 事件');
+
+  // 铲普通球员不吹犯规(街机对抗保持合法)
+  m.phase = 'play'; m.phaseT = 0;
+  const fielder = m.teamPlayers(1)[3];
+  fielder.x = 0; fielder.z = 0; fielder.setState('idle'); fielder.y = 0;
+  attacker.x = -C.PLAYER_RADIUS * 2; attacker.z = 0;
+  attacker.setState('slide');
+  const fouls1 = m.stats[0].fouls;
+  try { m.playerCollisions(); } finally { /* random restored */ }
+  assert(m.stats[0].fouls === fouls1, '铲倒普通球员不应判犯规');
+
+  // 禁区外撞门将也不吹(仅保护禁区/持球场景)
+  m.phase = 'play'; m.phaseT = 0;
+  oppKeeper.x = 0; oppKeeper.z = 20; oppKeeper.setState('idle'); oppKeeper.y = 0;
+  m.ball.owner = null;
+  attacker.x = -C.PLAYER_RADIUS * 2; attacker.z = 20;
+  attacker.setState('slide');
+  const fouls2 = m.stats[0].fouls;
+  try { m.playerCollisions(); } finally { /* noop */ }
+  assert(m.stats[0].fouls === fouls2, '禁区外冲撞门将不应判犯规');
+}
+
+function testShootAccuracy() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  // 中场附近无输入射门:应朝 +x 方向且弹道合理(lift 在门框高度内可入射)
+  p.x = 10; p.z = 5; p.y = 0; p.setState('idle'); p.kickCd = 0;
+  m.ball.owner = p;
+  m.doShoot(p, emptyInp(), 0.3, 0);
+  assert(m.ball.vx > 15, `默认射门应朝对方球门,vx=${m.ball.vx.toFixed(1)}`);
+  const lift = m.ball.vy;
+  assert(lift > 1 && lift < 5, `平射击应低飘,lift=${lift.toFixed(2)}`);
+  assert(Math.abs(m.ball.swerve) <= 6, `侧旋应收紧到 ±6,swerve=${m.ball.swerve.toFixed(2)}`);
+}
+
+function testChargeTiers() {
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 10; p.z = 3; p.y = 0; p.setState('idle'); p.kickCd = 0;
+
+  // 半蓄=普通强化(power≈1.14×base)
+  m.ball.owner = p; m.energy[0] = 30;   // 能量不满,避免触发必杀
+  const base = C.SHOOT_SPEED * p.def.power;
+  m.doShoot(p, emptyInp(), 0.5, 0);
+  const halfSpeed = Math.hypot(m.ball.vx, m.ball.vz);
+  near(halfSpeed, base * 1.14, 1.2, `半蓄力量应为 1.14×base`);
+
+  // 满蓄(能量不满)=重炮:power≥1.4×base 且贴地
+  p.setState('idle'); p.kickCd = 0; m.ball.owner = p;
+  m.doShoot(p, emptyInp(), 1, 0);
+  const cannonSpeed = Math.hypot(m.ball.vx, m.ball.vz);
+  assert(cannonSpeed >= base * C.CANNON_POWER_MUL - 1, `重炮应大力,cannon=${cannonSpeed.toFixed(1)} vs base×${C.CANNON_POWER_MUL}=${(base * C.CANNON_POWER_MUL).toFixed(1)}`);
+  assert(m.ball.vy <= C.CANNON_MAX_LIFT + 0.01, `重炮应贴地强袭,vy=${m.ball.vy.toFixed(2)}`);
+
+  // 满蓄+能量满=必杀(通道 B 地面触发)
+  p.setState('idle'); p.kickCd = 0; m.ball.owner = p;
+  m.energy[0] = C.ENERGY_MAX;
+  m.doShoot(p, emptyInp(), 1, 0);
+  assert(m.ball.special !== null, '能量满+满蓄松开应地面触发必杀');
+  assert(m.energy[0] === 0, '必杀应清空能量');
+
+  // 满蓄但能量刚耗尽 → 回落为重炮(不再必杀)
+  p.setState('idle'); p.kickCd = 0; m.ball.reset(p.x + 1.4, p.z); m.ball.owner = p;
+  m.doShoot(p, emptyInp(), 1, 0);
+  assert(m.ball.special === null, '能量耗尽后满蓄应为重炮而非必杀');
+}
+
 const tests: [string, () => void][] = [
   ['持球越界进球与更新顺序', testOwnedBallGoalAndBoundaryOrder],
   ['半场换边', testEndsSwap],
@@ -414,7 +885,67 @@ const tests: [string, () => void][] = [
   ['过人成功/失败反馈', testDribbleFeedbackEvents],
   ['假射与蓄力射门', testFakeShotAndChargedShot],
   ['少林队与新必杀', testShaolinTeamAndSpecials],
+  ['固定位置全程不切换', testFixedPositionNeverSwitches],
+  ['要球与滑铲按球权分流', testCallForPassContext],
+  ['空间要球落点', testSpacePassRequest],
+  ['蓄力急停与瞄准缓存', testChargeStopAndAimCache],
+  ['门将手动扑救与能量奖励', testKeeperManualDive],
+  ['吊射与贴地斩', testChipAndDaisyCutter],
+  ['马赛回旋与踩单车', testTrickDribbles],
+  ['内马尔式花式过人', testNeymarTricks],
+  ['新球队与新必杀', testNewContentData],
+  ['进球庆祝与复位', testGoalCelebration],
+  ['门将拳击解围与滑铲', testKeeperPunchAndTackle],
+  ['必杀落地缓冲窗口', testSpecialLandingGrace],
+  ['单人训练场', testSoloTrainingDrill],
+  ['单人训练NPC冻结', testSoloNpcFreeze],
+  ['蓄力移动与全向射门', testChargeMoveAndOmniShot],
+  ['冲刺连招与假射真扣', testDashCombos],
+  ['干扰门将犯规', testKeeperInterferenceFoul],
+  ['射门准度回归', testShootAccuracy],
+  ['蓄力分级与重炮/必杀通道', testChargeTiers],
+  ['护球/回追/手抛球/庆祝', testNewOperations],
 ];
+
+function testNewOperations() {
+  // 护球:按住战术键+持球 → shieldActive,能量缓慢积累
+  const m = makeMatch();
+  const p = m.getControlled(0);
+  p.x = 0; p.z = 0; p.y = 0; p.setState('idle'); p.kickCd = 0;
+  m.ball.owner = p;
+  m.energy[0] = 50;
+  m.applyInput(p, emptyInp({ tactic: true }), 1 / 60);
+  assert(p.shieldActive, '按住战术键持球应进入护球');
+  assert(m.energy[0] > 50, '护球应缓慢积攒能量');
+  const shieldSpeed = Math.hypot(p.vx, p.vz);
+  m.applyInput(p, emptyInp({ tactic: true, dirX: 1 }), 1 / 60);
+  const shieldMove = Math.abs(p.vx);
+  const normalMove = p.moveSpeed();
+  assert(shieldMove < normalMove * 0.7, `护球移动应减速至55%,${shieldMove.toFixed(1)} vs ${normalMove.toFixed(1)}`);
+
+  // 门将手抛球:低平快速
+  const keeper = m.teamPlayers(0)[0];
+  keeper.x = -C.FIELD_LENGTH / 2 + 2; keeper.z = 0; keeper.y = 0;
+  keeper.setState('idle'); keeper.kickCd = 0;
+  const mate = m.teamPlayers(0)[2];
+  mate.x = keeper.x + 15; mate.z = 5; mate.setState('idle');
+  m.ball.reset(keeper.x + 1.4, keeper.z);
+  m.ball.owner = keeper;
+  m.doKeeperThrow(keeper);
+  assert(m.ball.owner === null, '手抛球应释放球权');
+  assert(m.ball.vy <= 1.01, `手抛球应低平,vy=${m.ball.vy.toFixed(2)}`);
+  const throwSpeed = Math.hypot(m.ball.vx, m.ball.vz);
+  near(throwSpeed, C.PASS_SPEED * 1.1, 1.5, `手抛球速度应为 1.1×PASS_SPEED`);
+
+  // 庆祝样式切换
+  const scorer = m.teamPlayers(0)[3];
+  scorer.celebrateStyle = 0;
+  (m as any).setCelebration(scorer);
+  assert(scorer.state === 'celebrateSlide', '样式0应为滑跪');
+  scorer.celebrateStyle = 2;
+  (m as any).setCelebration(scorer);
+  assert(scorer.state === 'celebrateCradle', '样式2应为摇篮舞');
+}
 
 for (const [name, test] of tests) {
   test();

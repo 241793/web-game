@@ -106,6 +106,31 @@ TEAMS.push(
   },
 );
 
+TEAMS.push(
+  {
+    id: 'ar', name: '沙漠猎鹰', nameEn: 'FALCON AR', color: 0x1a8a4a, color2: 0xf2f2f2,
+    players: [
+      { name: '沙堡', speed: 0.92, power: 0.95, toughness: 1.25, special: 'blast', skin: 0xc08858, hair: 0x101010, appearance: { build: 'heavy', hairStyle: 'short', face: 'normal' } },
+      { name: '猎鹰', speed: 1.22, power: 1.05, toughness: 0.95, special: 'eagle', skin: 0xc08858, hair: 0x101010, appearance: { build: 'slim', hairStyle: 'spiky', face: 'normal' } },
+      { name: '热风', speed: 1.18, power: 1.0, toughness: 0.95, special: 'mirage', skin: 0xb87a48, hair: 0x201510, appearance: { build: 'slim', hairStyle: 'long', face: 'smile' } },
+      { name: '驼铃', speed: 1.1, power: 1.05, toughness: 1.0, special: 'banana', skin: 0xc08858, hair: 0x101010, appearance: { build: 'medium', hairStyle: 'mohawk', face: 'smile' } },
+      { name: '星月', speed: 1.05, power: 1.15, toughness: 1.1, special: 'meteor', skin: 0xc8925e, hair: 0x101010, appearance: { build: 'medium', hairStyle: 'short', face: 'normal' } },
+      { name: '绿洲', speed: 1.15, power: 1.0, toughness: 0.98, special: 'serpent', skin: 0xc08858, hair: 0x2a1a10, appearance: { build: 'medium', hairStyle: 'ponytail', face: 'smile' } },
+    ],
+  },
+  {
+    id: 'fr', name: '高卢雄鸡', nameEn: 'GALLIC FR', color: 0x2a4ac8, color2: 0xd83a2a,
+    players: [
+      { name: '凯旋', speed: 0.9, power: 1.0, toughness: 1.28, special: 'blast', skin: 0xf0c8a0, hair: 0x2a2018, appearance: { build: 'heavy', hairStyle: 'short', face: 'frown' } },
+      { name: '雄鸡', speed: 1.15, power: 1.15, toughness: 1.1, special: 'eagle', skin: 0xf0c8a0, hair: 0x3a2a1a, appearance: { build: 'medium', hairStyle: 'spiky', face: 'normal' } },
+      { name: '铁塔', speed: 0.92, power: 1.25, toughness: 1.22, special: 'meteor', skin: 0xe8b888, hair: 0x2a1a10, appearance: { build: 'heavy', hairStyle: 'short', face: 'normal' } },
+      { name: '鸢尾', speed: 1.18, power: 0.98, toughness: 0.92, special: 'phantom', skin: 0xf8d8b0, hair: 0x1a1a1a, appearance: { build: 'slim', hairStyle: 'ponytail', face: 'smile' } },
+      { name: '塞纳', speed: 1.08, power: 1.08, toughness: 1.05, special: 'cyclone', skin: 0xf0c8a0, hair: 0x2a2018, appearance: { build: 'medium', hairStyle: 'long', face: 'normal' } },
+      { name: '马赛曲', speed: 1.12, power: 1.02, toughness: 1.0, special: 'mirage', skin: 0xe8b888, hair: 0x3a2a1a, appearance: { build: 'medium', hairStyle: 'mohawk', face: 'smile' } },
+    ],
+  },
+);
+
 export function teamById(id: string): TeamDef {
   return TEAMS.find(t => t.id === id) ?? TEAMS[0];
 }

@@ -8,14 +8,12 @@ export interface InputState {
   dash: boolean;
   jump: boolean;
   skill: boolean;
-  switchPlayer: boolean;
   tactic: boolean;
   passPressed: boolean;   // 本帧按下(边沿)
   shootPressed: boolean;
   dashPressed: boolean;
   jumpPressed: boolean;
   skillPressed: boolean;
-  switchPressed: boolean;
   tacticPressed: boolean;
 }
 
@@ -24,18 +22,18 @@ export class Input {
   private keys = new Set<string>();
   private prev = {
     pass: false, shoot: false, dash: false, jump: false, skill: false,
-    switchPlayer: false, tactic: false,
+    tactic: false,
   };
   private prevStart = false;
   state: InputState = {
     dirX: 0, dirZ: 0, pass: false, shoot: false, dash: false, jump: false, skill: false,
-    switchPlayer: false, tactic: false,
+    tactic: false,
     passPressed: false, shootPressed: false, dashPressed: false, jumpPressed: false, skillPressed: false,
-    switchPressed: false, tacticPressed: false,
+    tacticPressed: false,
   };
   // 虚拟摇杆/按钮写入口(移动端 UI 调用)
   touchDir = { x: 0, z: 0, active: false };
-  touchBtn = { pass: false, shoot: false, dash: false, jump: false, skill: false, switchPlayer: false, tactic: false };
+  touchBtn = { pass: false, shoot: false, dash: false, jump: false, skill: false, tactic: false };
   // 暂停触发边沿(ESC 由 main 监听,此处处理手柄 Start)
   startPressed = false;
 
@@ -50,7 +48,7 @@ export class Input {
       this.touchDir.active = false;
       this.touchDir.x = 0; this.touchDir.z = 0;
       this.touchBtn.pass = this.touchBtn.shoot = this.touchBtn.dash = this.touchBtn.jump = this.touchBtn.skill = false;
-      this.touchBtn.switchPlayer = this.touchBtn.tactic = false;
+      this.touchBtn.tactic = false;
     });
   }
 
@@ -104,7 +102,6 @@ export class Input {
     const jump = this.key('i', ' ', 'v') || this.touchBtn.jump
       || !!gp?.buttons[0]?.pressed || (gp?.buttons[7]?.value ?? 0) > 0.5;
     const skill = this.key('q', 'u') || this.touchBtn.skill || !!gp?.buttons[5]?.pressed;
-    const switchPlayer = this.key('e', 'tab') || this.touchBtn.switchPlayer || !!gp?.buttons[4]?.pressed;
     const tactic = this.key('t') || this.touchBtn.tactic || !!gp?.buttons[10]?.pressed;
 
     s.passPressed = pass && !this.prev.pass;
@@ -112,11 +109,10 @@ export class Input {
     s.dashPressed = dash && !this.prev.dash;
     s.jumpPressed = jump && !this.prev.jump;
     s.skillPressed = skill && !this.prev.skill;
-    s.switchPressed = switchPlayer && !this.prev.switchPlayer;
     s.tacticPressed = tactic && !this.prev.tactic;
     s.pass = pass; s.shoot = shoot; s.dash = dash; s.jump = jump; s.skill = skill;
-    s.switchPlayer = switchPlayer; s.tactic = tactic;
-    this.prev = { pass, shoot, dash, jump, skill, switchPlayer, tactic };
+    s.tactic = tactic;
+    this.prev = { pass, shoot, dash, jump, skill, tactic };
 
     // 手柄 Start(暂停)
     const gpStart = !!gp?.buttons[9]?.pressed;

@@ -3,7 +3,7 @@ import { Match } from './match';
 import { Player } from './player';
 import { SPECIALS } from '../core/specials';
 import {
-  chooseGoalTarget, estimateBallIntercept, expectedGoal, passLaneSafety, predictBallPosition,
+  chooseGoalTarget, clamp, estimateBallIntercept, expectedGoal, passLaneSafety, predictBallPosition,
 } from './football';
 
 // AI 大脑:每名球员一份记忆(决策冷却 + 当前跑位目标),避免逐帧抖动与站桩
@@ -25,9 +25,9 @@ function brainOf(p: Player): Brain {
 }
 
 const DIFFICULTIES = [
-  { think: 0.72, speed: 0.93, tackleCd: 2.9, shootErr: 4.1, passErr: 3.0, supportDist: 16, predict: 0.2, reaction: 0.42, risk: 0.35 },
-  { think: 0.4, speed: 0.98, tackleCd: 2.1, shootErr: 2.2, passErr: 1.5, supportDist: 13, predict: 0.68, reaction: 0.24, risk: 0.58 },
-  { think: 0.2, speed: 1.0, tackleCd: 1.45, shootErr: 0.85, passErr: 0.45, supportDist: 10.5, predict: 1, reaction: 0.12, risk: 0.78 },
+  { think: 1.16, speed: 0.93, tackleCd: 3.8, shootErr: 4.1, passErr: 3.0, supportDist: 16, predict: 0.2, reaction: 0.42, risk: 0.35 },
+  { think: 0.65, speed: 0.98, tackleCd: 2.7, shootErr: 2.2, passErr: 1.5, supportDist: 13, predict: 0.68, reaction: 0.24, risk: 0.58 },
+  { think: 0.32, speed: 1.0, tackleCd: 1.9, shootErr: 0.85, passErr: 0.45, supportDist: 10.5, predict: 1, reaction: 0.12, risk: 0.78 },
 ] as const;
 
 function diff(m: Match, team: number) {
@@ -103,12 +103,9 @@ function keeperAI(m: Match, p: Player, dt: number) {
   const imminent = crossingTime < (0.56 + D.reaction * 0.35);
   const lateralGap = Math.abs(tz - p.z);
   if (imminent && lateralGap > 1.35 && p.onGround && p.stamina > 8) {
-    p.face(0, tz - p.z);
-    p.setState('dive');
-    p.vz = Math.sign(tz - p.z) * (12.5 + D.predict * 2);
-    p.vx = 0;
-    if (crossingY > 1.45) p.vy = Math.min(C.JUMP_VEL * 0.72, 4.5 + crossingY);
-    p.consumeStamina(8);
+    // 与玩家扑救共享同一物理参数,观感一致
+    const power = clamp(Math.abs(tz - p.z) / 6, 0.3, 1);
+    m.doKeeperDive(p, 0, Math.sign(tz - p.z), power);
   } else if (!b.owner && d < 4.8 && (b.y > 1.55 || crossingY > 1.7) && p.onGround && b.speed() > 11) {
     p.vy = C.JUMP_VEL * 0.9; p.setState('jump');
   }
@@ -459,11 +456,20 @@ function aiPass(m: Match, p: Player, preferred: Player | null = null) {
     const safety = passLaneSafety(p, q, m.teamPlayers(1 - p.team), speed, D.reaction);
     let score = m.passTargetScore(p, q, 0.75) + safety * 4 + forward * 0.025;
     if (q === preferred) score += 1.6;
-    if (isHumanControlled(m, q)) score += 12;
+    // 固定玩家主动要球且线路安全时给予有限加权,而非无条件强喂。
+    if (isHumanControlled(m, q) && q.passCallT > 0 && q.state !== 'fallen' && safety > 0.42) {
+      score += 2.5;
+    }
     if (score > bs) { bs = score; best = q; }
   }
   if (!best) { aiShoot(m, p); return; }
   const forward = (best.x - p.x) * dir;
   const through = forward > 11 && m.tactics[p.team] !== 'defend' && D.predict > 0.45;
-  m.executePass(p, best, D.passErr, through);
+  let spaceX = 0, spaceZ = 0;
+  if (isHumanControlled(m, best) && best.passCallT > 0
+      && Math.hypot(best.passCallDirX, best.passCallDirZ) > 0.1) {
+    spaceX = best.passCallDirX * C.PASS_CALL_SPACE;
+    spaceZ = best.passCallDirZ * C.PASS_CALL_SPACE;
+  }
+  m.executePass(p, best, D.passErr, through, spaceX, spaceZ);
 }

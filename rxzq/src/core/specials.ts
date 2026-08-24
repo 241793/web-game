@@ -33,4 +33,6 @@ export const SPECIALS: Record<SpecialShotId, SpecialDef> = {
   freeze:  { id: 'freeze',  name: '寒冰冻结', color: 0x9ad8ff, color2: 0x5aa8ff, speed: 0.88, curve: 12, wave: 3,  waveFreq: 5, lift: 1.1, gravityScale: 0.08, knockdown: true,  ground: false, fxStyle: 'ice', trailScale: 0.9, flash: false },
   luohan:  { id: 'luohan',  name: '罗汉伏虎', color: 0xf5a020, color2: 0xd8352a, speed: 1.18, curve: 0,  wave: 0,  waveFreq: 0, lift: 0.85, gravityScale: 0.12, knockdown: true,  ground: false, fxStyle: 'fist', trailScale: 1.6, flash: true },
   sweep:   { id: 'sweep',   name: '扫堂腿',   color: 0xf5c53d, color2: 0x8a5a20, speed: 1.02, curve: 8,  wave: 2,  waveFreq: 7, lift: 0.1, gravityScale: 0.0,  knockdown: true,  ground: true,  fxStyle: 'groundspark', trailScale: 1.2, flash: true },
+  eagle:   { id: 'eagle',   name: '鹰击长空', color: 0xf8f4d8, color2: 0xf5b93d, speed: 1.25, curve: 10, wave: 0,  waveFreq: 0, lift: 2.4, gravityScale: 1.45, knockdown: true,  ground: false, fxStyle: 'meteor', trailScale: 1.4, flash: true },
+  mirage:  { id: 'mirage',  name: '沙漠幻影', color: 0x3df5c8, color2: 0xf5e13d, speed: 1.12, curve: 0,  wave: 9,  waveFreq: 11, lift: 0.6, gravityScale: 0.1, knockdown: true, ground: false, fxStyle: 'serpent', trailScale: 1.15, flash: true },
 };

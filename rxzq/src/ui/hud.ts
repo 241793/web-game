@@ -11,6 +11,11 @@ export class Hud {
   private windEl: HTMLDivElement;
   private statusEl: HTMLDivElement;
   private staminaBar: HTMLDivElement;
+  private chargeEl: HTMLDivElement;
+  private chargeBar: HTMLDivElement;
+  private chargeLabelEl: HTMLDivElement = null as unknown as HTMLDivElement;
+  private lastInputDash = false;
+  setDashHeld(v: boolean) { this.lastInputDash = v; }
   private bannerEl: HTMLDivElement;
   private drillEl: HTMLDivElement;
   private drillLabelEl: HTMLDivElement;
@@ -102,6 +107,20 @@ export class Hud {
     this.statusEl.appendChild(staminaTrack);
     this.root.appendChild(this.statusEl);
 
+    // 蓄力条(仅持球蓄力时显示),附假射阈值刻度
+    this.chargeEl = document.createElement('div');
+    this.chargeEl.style.cssText = 'position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom) + 62px);transform:translateX(-50%);width:min(180px,34vw);height:7px;background:#17120e;border:1px solid #a98b52;display:none;';
+    this.chargeBar = document.createElement('div');
+    this.chargeBar.style.cssText = 'height:100%;width:0;background:linear-gradient(90deg,#3df5e1,#f5d33d,#f53d3d);';
+    this.chargeEl.appendChild(this.chargeBar);
+    const tick = document.createElement('div');
+    tick.style.cssText = `position:absolute;top:-2px;bottom:-2px;left:${C.FAKE_SHOT_TAP / C.SHOOT_CHARGE_MAX * 100}%;width:1px;background:rgba(255,255,255,.75);`;
+    this.chargeEl.appendChild(tick);
+    this.root.appendChild(this.chargeEl);
+    this.chargeLabelEl = document.createElement('div');
+    this.chargeLabelEl.style.cssText = 'position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom) + 74px);transform:translateX(-50%);font-size:12px;color:#ffe23d;text-shadow:0 1px 2px #000;display:none;letter-spacing:2px;';
+    this.root.appendChild(this.chargeLabelEl);
+
     this.bannerEl = document.createElement('div');
     this.bannerEl.className = 'hud-banner';
     this.bannerEl.style.cssText = 'position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);padding:.12em .45em .22em;font-size:clamp(28px,7vw,66px);font-weight:900;text-shadow:0 4px 0 #160d08,0 0 18px #000;display:none;white-space:nowrap;letter-spacing:.16em;border-top:2px solid currentColor;border-bottom:2px solid currentColor;background:linear-gradient(90deg,transparent,#170c08bb 18%,#170c08bb 82%,transparent);';
@@ -159,10 +178,23 @@ export class Hud {
       this.comboEls[team].textContent = m.combo[team] >= 2 ? `连携×${m.combo[team]}` : '';
     }
 
+    // 必杀就绪提示:能量满时在比分牌下闪烁
+    const myFull = m.humanTeam >= 0 && m.energyFull(m.humanTeam);
+    this.timeEl.style.color = myFull ? '#ffe23d' : '#e9dfc9';
+    if (myFull) {
+      const blink = Math.sin(performance.now() / 180) > 0;
+      const suffix = ' ★必杀就绪 跳跃+射门★';
+      if (!this.timeEl.textContent?.includes('必杀就绪')) {
+        this.timeEl.textContent += suffix;
+      }
+      void blink;
+    }
+
     const controlled = m.humanTeam >= 0 ? m.getControlled(m.humanTeam) : null;
+    const inpDashHeld = this.lastInputDash;
     if (controlled) {
       const stamina = Math.round(controlled.stamina);
-      const lock = m.controlLocked[m.humanTeam] ? '固定位置' : 'E/LB 换人';
+      const lock = '固定位置';
       // 文本节点放在体力条前面，避免每帧重建进度条。
       let text = this.statusEl.querySelector('[data-role="status-text"]') as HTMLDivElement | null;
       if (!text) {
@@ -170,8 +202,35 @@ export class Hud {
         text.dataset.role = 'status-text';
         this.statusEl.insertBefore(text, this.statusEl.firstChild);
       }
-      text.textContent = `${controlled.isKeeper ? '门神' : '执掌'} · ${controlled.def.name}　体力 ${stamina}　战术「${m.tacticLabel(m.humanTeam)}」　${lock} · T 战术`;
+      text.textContent = controlled.isKeeper
+        ? `${controlled.def.name}　体力 ${stamina}${controlled.shieldActive ? '　🛡护球中' : ''}　扑救: 按住跳跃蓄力+方向 · T 战术`
+        : `${controlled.isKeeper ? '门神' : '执掌'} · ${controlled.def.name}　体力 ${stamina}${controlled.shieldActive ? '　🛡护球中' : ''}　战术「${m.tacticLabel(m.humanTeam)}」　固定位置 · T 战术`;
       this.staminaBar.style.width = `${stamina}%`;
+      const charging = controlled.shootChargeT >= 0 && m.ball.owner === controlled;
+      this.chargeEl.style.display = charging ? 'block' : 'none';
+      if (charging) {
+        const frac = Math.min(1, controlled.shootChargeT / C.SHOOT_CHARGE_MAX);
+        this.chargeBar.style.width = `${frac * 100}%`;
+        // 分档视觉:深蓄(≥50%)白边脉动=精准;满蓄金闪=重炮/必杀
+        if (frac >= 0.999) {
+          this.chargeBar.style.background = '#ffd23d';
+          this.chargeEl.style.boxShadow = '0 0 10px #ffd23d';
+          this.chargeLabelEl.textContent = m.energyFull(m.humanTeam) ? '松开=必杀!' : '松开=重炮!';
+          this.chargeLabelEl.style.display = 'block';
+          this.chargeLabelEl.style.color = '#ffd23d';
+        } else if (frac >= C.SHOOT_CHARGE_PRECISE) {
+          this.chargeBar.style.background = 'linear-gradient(90deg,#3df5e1,#f5d33d,#f53d3d)';
+          this.chargeEl.style.boxShadow = `0 0 ${6 + Math.sin(performance.now() / 90) * 4}px #ffffff88`;
+          this.chargeLabelEl.style.display = 'none';
+        } else {
+          this.chargeBar.style.background = 'linear-gradient(90deg,#3df5e1,#f5d33d,#f53d3d)';
+          this.chargeEl.style.boxShadow = 'none';
+          this.chargeLabelEl.style.display = 'none';
+        }
+      } else {
+        this.chargeEl.style.boxShadow = 'none';
+        this.chargeLabelEl.style.display = 'none';
+      }
     }
 
     if (m.training) {

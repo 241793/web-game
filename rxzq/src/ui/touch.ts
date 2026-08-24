@@ -36,7 +36,7 @@ export class TouchControls {
     this.input.touchDir = { x: 0, z: 0, active: false };
     this.input.touchBtn = {
       pass: false, shoot: false, dash: false, jump: false, skill: false,
-      switchPlayer: false, tactic: false,
+      tactic: false,
     };
     this.stickKnob.style.transform = 'translate(-50%,-50%)';
   }
@@ -91,7 +91,7 @@ export class TouchControls {
     const safeR = 'calc(env(safe-area-inset-right, 0px) + 3vw)';
     const safeB = 'calc(env(safe-area-inset-bottom, 0px) + 4vh)';
     const defs: { key: 'pass' | 'shoot' | 'dash' | 'jump' | 'skill'; label: string; transform: string; color: string }[] = [
-      { key: 'pass', label: '传/铲', transform: 'translate(calc(-1 * clamp(84px,14vw,112px)), -3vh)', color: '#3a8af5' },
+      { key: 'pass', label: '传/要/铲', transform: 'translate(calc(-1 * clamp(84px,14vw,112px)), -3vh)', color: '#3a8af5' },
       { key: 'shoot', label: '射门', transform: 'translate(0, -3vh)', color: '#f53d3d' },
       { key: 'jump', label: '跳', transform: 'translate(0, calc(-3vh - clamp(72px,12vw,88px)))', color: '#3df58a' },
       { key: 'dash', label: '冲刺', transform: 'translate(calc(-1 * clamp(84px,14vw,112px)), calc(-3vh - clamp(72px,12vw,88px)))', color: '#f5a63d' },
@@ -117,10 +117,9 @@ export class TouchControls {
       this.root.appendChild(btn);
     }
 
-    // 摇杆上方的辅助按钮:手动换人和即时战术，避免与五个动作键拥挤。
+    // 摇杆上方的辅助按钮:即时战术，避免与五个动作键拥挤。
     const utility = [
-      { key: 'switchPlayer' as const, label: '换人', color: '#f5d33d', offset: 0 },
-      { key: 'tactic' as const, label: '战术', color: '#d84a3a', offset: 62 },
+      { key: 'tactic' as const, label: '战术', color: '#d84a3a', offset: 0 },
     ];
     for (const d of utility) {
       const btn = document.createElement('div');
